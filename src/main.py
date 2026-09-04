@@ -1,27 +1,35 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException
-from pydantic import BaseModel
-from typing import List, Dict, Any
-from src.config import settings
-from src.workers.recovery_tasks import execute_graph_async
-from src.models.transaction import Transaction
-from src.persistence.audit_store import audit_store
-from src.persistence.policy_store import policy_store
-from src.persistence.database import db
-import uuid
-from datetime import datetime
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from src.config import settings
+from src.persistence.database import init_db, get_db
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.schemas import SimulationBatchRequest
+from src.persistence.crud import generate_fake_invoices
+from src.engine.core_loop import process_simulation_tick
+from src.dashboard_api import router as dashboard_router
+from src.websocket import manager
+from datetime import datetime, timedelta
+from src.rag.seed_data import seed_database
+from pydantic import BaseModel
+from src.persistence.models import Invoice
+from sqlalchemy.future import select
+from src.graph.builder import compiled_graph
+
+# Global state for simulation virtual date
+simulation_state = {
+    "virtual_date": datetime.utcnow()
+}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await db.connect()
-    await audit_store.initialize()
-    await policy_store.initialize()
+    await init_db()
+    # Initialize ChromaDB and seed RAG context on startup
+    seed_database()
     yield
-    await db.disconnect()
 
 app = FastAPI(
-    title="RevenueGuard API",
+    title="RevenueGuard API v2 B2B",
     description="Scalable API for AI Revenue Recovery",
     version="0.1.0",
     lifespan=lifespan
@@ -29,281 +37,75 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # For production, this should be restricted
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-class BatchRequest(BaseModel):
-    transactions: List[Transaction]
-
-@app.post("/webhooks/razorpay/payment.failed")
-async def handle_payment_failed(payload: Dict[str, Any], background_tasks: BackgroundTasks):
-    """
-    Ingest a single payment failure webhook from Razorpay.
-    """
-    try:
-        # Check if it's our synthetic simulator payload
-        if "customer" in payload and "payment" in payload:
-            transaction = Transaction(**payload)
-        else:
-            # Parse real Razorpay Webhook
-            payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
-            if not payment_entity:
-                raise ValueError("Invalid Razorpay payload structure")
-                
-            tx_id = payment_entity.get("id", f"pay_{uuid.uuid4().hex[:8]}")
-            
-            # Amount in Razorpay is in paise, convert to INR
-            amount_in_rupees = payment_entity.get("amount", 0) / 100
-            
-            customer_data = {
-                "name": payment_entity.get("email", "Unknown").split("@")[0] if payment_entity.get("email") else "Unknown",
-                "email": payment_entity.get("email", "unknown@example.com"),
-                "phone": payment_entity.get("contact", ""),
-                "type": "B2C"
-            }
-            
-            payment_data = {
-                "amount": amount_in_rupees,
-                "currency": payment_entity.get("currency", "INR"),
-                "method": payment_entity.get("method", "card"),
-                "bank": payment_entity.get("bank", "Unknown Bank") or "Unknown Bank",
-                "timestamp": datetime.now().isoformat(),
-                "status": payment_entity.get("status", "failed"),
-                "error_code": payment_entity.get("error_code", "UNKNOWN_ERROR")
-            }
-            
-            merchant_data = {
-                "id": payload.get("account_id", "mer_unknown"),
-                "name": "Razorpay Merchant"
-            }
-            
-            transaction = Transaction(
-                transaction_id=tx_id,
-                customer=customer_data,
-                payment=payment_data,
-                merchant=merchant_data
-            )
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Failed to parse webhook payload: {str(e)}")
-
-    # Run natively in background tasks (Microservice pattern without celery overhead)
-    background_tasks.add_task(execute_graph_async, transaction.model_dump())
-    task_id = f"sync-{uuid.uuid4().hex[:8]}"
-    
-    return {"status": "accepted", "task_id": task_id, "transaction_id": transaction.transaction_id}
-
-@app.post("/api/batch")
-async def process_batch(request: BatchRequest, background_tasks: BackgroundTasks):
-    """
-    Process a batch of failed transactions (e.g., from CSV upload or Tally sync).
-    """
-    task_ids = []
-    for tx in request.transactions:
-        background_tasks.add_task(execute_graph_async, tx.model_dump())
-        task_ids.append(f"sync-{uuid.uuid4().hex[:8]}")
-        
-    return {
-        "status": "accepted",
-        "processed_count": len(request.transactions),
-        "task_ids": task_ids
-    }
+app.include_router(dashboard_router)
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    return {"status": "healthy", "version": "v2_b2b"}
 
-class PolicyRequest(BaseModel):
-    agent_name: str
-    policy_text: str
+@app.post("/api/invoices/simulate_batch")
+async def create_simulation_batch(request: SimulationBatchRequest, db: AsyncSession = Depends(get_db)):
+    """Generates fake overdue invoices in the database."""
+    count = await generate_fake_invoices(db, request.count)
+    await manager.broadcast({"event": "state_updated"})
+    return {"status": "success", "message": f"Generated {count} invoices."}
 
-@app.get("/api/policies")
-async def get_policies(agent_name: str = None):
-    """Retrieve all active policies, optionally filtered by agent."""
-    policies = await policy_store.get_active_policies(agent_name)
-    return {"policies": policies}
-
-@app.post("/api/policies")
-async def create_policy(request: PolicyRequest):
-    """Add a new natural language policy for an agent."""
-    await policy_store.add_policy(request.agent_name, request.policy_text)
-    return {"status": "success", "message": "Policy added"}
-
-@app.delete("/api/policies/{policy_id}")
-async def delete_policy(policy_id: int):
-    """Delete a policy."""
-    await policy_store.delete_policy(policy_id)
-    return {"status": "success", "message": "Policy deleted"}
-
-@app.get("/api/metrics")
-async def get_metrics():
-    """Aggregated metrics for the dashboard."""
-    recent = await audit_store.get_recent(limit=1000)
+@app.post("/api/simulation/tick")
+async def advance_simulation_tick(db: AsyncSession = Depends(get_db)):
+    """Advances the virtual simulation date by 1 day and processes the core loop."""
+    simulation_state["virtual_date"] += timedelta(days=1)
+    processed_count = await process_simulation_tick(db, simulation_state["virtual_date"])
     
-    total_recovered = 0
-    silent_recoveries = 0
-    outreach_conversions = 0
-    escalated = 0
-
-    for r in recent:
-        action_str = str(r.get("action", "")).upper()
-        details_str = str(r.get("details", "")).upper()
-        
-        if "OPTIMIZER" in action_str or "SILENT" in action_str or "GATEWAY SWITCH" in action_str:
-            silent_recoveries += 1
-            total_recovered += 14500 # rough average placeholder
-        elif "KONNECT" in action_str or "WHATSAPP" in action_str or "OUTREACH" in action_str:
-            outreach_conversions += 1
-        elif "ESCALATE" in action_str or "ESCALATED" in details_str:
-            escalated += 1
-            
+    await manager.broadcast({"event": "state_updated", "virtual_date": simulation_state["virtual_date"].isoformat()})
+    
     return {
-        "metrics": [
-            {
-                "label": "Total Recovered",
-                "value": f"₹{total_recovered:,}",
-                "change": "Live",
-                "changeColor": "text-emerald-400",
-                "subtitle": "based on recent activity"
-            },
-            {
-                "label": "Silent Recoveries",
-                "value": str(silent_recoveries),
-                "change": "",
-                "changeColor": "text-gold",
-                "subtitle": "resolved by agent"
-            },
-            {
-                "label": "Outreach Interventions",
-                "value": str(outreach_conversions),
-                "change": "",
-                "changeColor": "text-gold",
-                "subtitle": "initiated via WhatsApp"
-            },
-            {
-                "label": "Escalated",
-                "value": str(escalated),
-                "change": "",
-                "changeColor": "text-red-400",
-                "subtitle": "requires human review"
-            }
-        ]
+        "status": "success", 
+        "virtual_date": simulation_state["virtual_date"].isoformat(),
+        "invoices_processed": processed_count
     }
 
-@app.get("/api/pipeline")
-async def get_pipeline():
-    """Returns transactions currently in the pipeline."""
-    recent = await audit_store.get_recent(limit=50)
-    
-    pipeline = []
-    seen_tx = set()
-    
-    for r in recent:
-        tx_id = r["transaction_id"]
-        if tx_id in seen_tx:
-            continue
-        seen_tx.add(tx_id)
-        
-        statusColor = "text-emerald-400"
-        dotColor = "bg-emerald-500"
-        borderColor = "border-l-emerald-500"
-        
-        if "Escalated" in r["action"]:
-            statusColor = "text-red-400"
-            dotColor = "bg-red-500"
-            borderColor = "border-l-red-500"
-        elif "Outreach" in r["agent"] or "WhatsApp" in r["action"]:
-            statusColor = "text-gold"
-            dotColor = "bg-[#D9A353]"
-            borderColor = "border-l-[#D9A353]"
-            
-        pipeline.append({
-            "id": tx_id,
-            "agent": r["agent"],
-            "amount": "₹...", # Not tracked in audit_trail directly yet
-            "status": r["action"],
-            "statusColor": statusColor,
-            "dotColor": dotColor,
-            "borderColor": borderColor,
-        })
-        
-        if len(pipeline) >= 10:
-            break
-            
-    return {"pipeline": pipeline}
+class ClientReplyRequest(BaseModel):
+    message: str
 
-@app.get("/api/events")
-async def get_events():
-    """Returns the live event stream."""
-    recent = await audit_store.get_recent(limit=20)
-    
-    events = []
-    for r in recent:
-        dot = "bg-emerald-500"
-        if "Escalated" in r["action"]:
-            dot = "bg-red-500"
-        elif "Diagnosed" in r["action"]:
-            dot = "bg-cyan-500"
-        elif "Approved" in r["action"]:
-            dot = "bg-[#F0E7D6]"
-            
-        reasoning = None
-        if "Reasoning:" in r["details"]:
-            parts = r["details"].split("Reasoning:", 1)
-            reasoning = parts[1].strip()
-            
-        events.append({
-            "agent": r["agent"],
-            "details": r["details"].split("\n")[0] if "\n" in r["details"] else r["details"],
-            "reasoning": reasoning,
-            "time": r["timestamp"].strftime("%H:%M:%S"),
-            "dot": dot
-        })
+@app.post("/api/invoices/{id}/reply")
+async def client_reply(id: int, request: ClientReplyRequest, db: AsyncSession = Depends(get_db)):
+    """Simulates a client email reply for interactive demo."""
+    # Fetch invoice, build state, pass through classify_reply node
+    result = await db.execute(select(Invoice).where(Invoice.id == id))
+    invoice = result.scalar_one_or_none()
+    if not invoice:
+        return {"error": "Invoice not found"}
         
-    return {"events": events}
+    state = {
+        "invoice_id": invoice.id,
+        "client_name": invoice.client_name,
+        "client_email": invoice.client_email,
+        "amount": invoice.amount,
+        "current_status": invoice.status.value,
+        "client_reply": request.message,
+        "audit_entries": [],
+        "should_send_email": False
+    }
+    
+    # We invoke the graph with the mock reply
+    # In a real scenario, we'd start at the classify_reply node
+    final_state = await compiled_graph.ainvoke(state)
+    
+    await manager.broadcast({"event": "state_updated"})
+    return {"status": "success", "classified_intent": final_state.get("classified_intent")}
 
-@app.get("/api/audit/{transaction_id}")
-async def get_audit_trail(transaction_id: str):
-    """Returns the audit trail for a specific transaction."""
-    trail = await audit_store.get_trail(transaction_id)
+@app.post("/api/webhooks/razorpay")
+async def razorpay_webhook(payload: dict, db: AsyncSession = Depends(get_db)):
+    """Receives simulated Razorpay webhook events (invoice.paid, payment.dispute.created, etc.)"""
+    event = payload.get("event")
+    print(f"Received Webhook: {event}")
     
-    formatted_trail = []
-    for r in trail:
-        dot = "bg-emerald-500"
-        if "Escalated" in r["action"]:
-            dot = "bg-red-500"
-        elif "Diagnosed" in r["action"]:
-            dot = "bg-cyan-500"
-        elif "Approved" in r["action"]:
-            dot = "bg-[#F0E7D6]"
-            
-        reasoning = None
-        confidence = None
-        recommended_action = None
-        
-        details = r["details"]
-        
-        # Simple parser to extract structured agent outputs from details string
-        if "Reasoning:" in details:
-            parts = details.split("Reasoning:", 1)
-            reasoning = parts[1].strip()
-            details = parts[0].strip()
-            
-        if "Recommended Action:" in details:
-            parts = details.split("Recommended Action:", 1)
-            recommended_action = parts[1].split("|")[0].strip() if "|" in parts[1] else parts[1].strip()
-            
-        formatted_trail.append({
-            "agent": r["agent"],
-            "action": r["action"],
-            "details": details,
-            "reasoning": reasoning,
-            "confidence": confidence,
-            "recommended_action": recommended_action,
-            "time": r["timestamp"].strftime("%H:%M:%S"),
-            "dotColor": dot
-        })
-        
-    return {"trail": formatted_trail}
+    # Normally this would route through execute_action or transition states
+    await manager.broadcast({"event": "state_updated"})
+    return {"status": "received"}

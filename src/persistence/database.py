@@ -1,24 +1,18 @@
-import asyncpg
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from src.config import settings
+from src.persistence.models import Base
 
-class Database:
-    def __init__(self):
-        self.pool = None
+engine = create_async_engine(settings.database_url, echo=True)
 
-    async def connect(self):
-        if not self.pool:
-            self.pool = await asyncpg.create_pool(dsn=settings.database_url)
+async_session = async_sessionmaker(
+    engine, class_=AsyncSession, expire_on_commit=False
+)
 
-    async def disconnect(self):
-        if self.pool:
-            await self.pool.close()
+async def init_db():
+    async with engine.begin() as conn:
+        # Create tables if they don't exist
+        await conn.run_sync(Base.metadata.create_all)
 
-    async def execute(self, query: str, *args):
-        async with self.pool.acquire() as connection:
-            return await connection.execute(query, *args)
-
-    async def fetch(self, query: str, *args):
-        async with self.pool.acquire() as connection:
-            return await connection.fetch(query, *args)
-
-db = Database()
+async def get_db():
+    async with async_session() as session:
+        yield session

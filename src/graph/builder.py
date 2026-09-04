@@ -1,87 +1,76 @@
 from langgraph.graph import StateGraph, END
-from src.graph.state import RevenueGuardState
-from src.agents.orchestrator import orchestrator_node
-from src.agents.prediction import prediction_node
-from src.agents.compliance import compliance_node
+from src.graph.state import RecoveryState
+from src.graph.nodes import (
+    check_overdue, check_cooldown, log_blocked, retrieve_client_context,
+    classify_reply, draft_email, evaluate_compliance, call_razorpay_tools,
+    execute_action, simulate_client
+)
+from src.graph.edges import (
+    route_after_overdue, route_after_cooldown, route_after_classification, route_after_compliance
+)
 
-from src.agents.services.card_service import card_service_node
-from src.agents.services.upi_service import upi_service_node
-from src.agents.services.netbanking_service import netbanking_service_node
-from src.agents.services.wallet_service import wallet_service_node
+workflow = StateGraph(RecoveryState)
 
-def router(state: RevenueGuardState) -> str:
-    """Routes based on the current_agent set in state."""
-    return state["current_agent"]
+workflow.add_node("check_overdue", check_overdue)
+workflow.add_node("check_cooldown", check_cooldown)
+workflow.add_node("log_blocked", log_blocked)
+workflow.add_node("retrieve_client_context", retrieve_client_context)
+workflow.add_node("classify_reply", classify_reply)
+workflow.add_node("draft_email", draft_email)
+workflow.add_node("evaluate_compliance", evaluate_compliance)
+workflow.add_node("call_razorpay_tools", call_razorpay_tools)
+workflow.add_node("execute_action", execute_action)
+workflow.add_node("simulate_client", simulate_client)
 
-def create_graph():
-    workflow = StateGraph(RevenueGuardState)
-    
-    # Add nodes
-    workflow.add_node("orchestrator", orchestrator_node)
-    workflow.add_node("prediction", prediction_node)
-    workflow.add_node("compliance", compliance_node)
-    
-    # Microservices Nodes
-    workflow.add_node("card_service", card_service_node)
-    workflow.add_node("upi_service", upi_service_node)
-    workflow.add_node("netbanking_service", netbanking_service_node)
-    workflow.add_node("wallet_service", wallet_service_node)
-    
-    # Define edges
-    workflow.set_entry_point("orchestrator")
-    
-    # The orchestrator decides which microservice handles the failure
-    workflow.add_conditional_edges(
-        "orchestrator",
-        router,
-        {
-            "card_service": "card_service",
-            "upi_service": "upi_service",
-            "netbanking_service": "netbanking_service",
-            "wallet_service": "wallet_service",
-            "prediction": "prediction"
-        }
-    )
-    
-    # Microservices route to compliance or end
-    workflow.add_conditional_edges(
-        "card_service",
-        router,
-        {"compliance": "compliance", "end": END}
-    )
-    
-    workflow.add_conditional_edges(
-        "upi_service",
-        router,
-        {"compliance": "compliance", "end": END}
-    )
-    
-    workflow.add_conditional_edges(
-        "netbanking_service",
-        router,
-        {"compliance": "compliance", "end": END}
-    )
-    
-    workflow.add_conditional_edges(
-        "wallet_service",
-        router,
-        {"compliance": "compliance", "end": END}
-    )
-    
-    # Prediction routes to compliance (or end)
-    workflow.add_conditional_edges(
-        "prediction",
-        router,
-        {"compliance": "compliance", "end": END}
-    )
-    
-    # Compliance is the final check before ending
-    workflow.add_conditional_edges(
-        "compliance",
-        router,
-        {"end": END}
-    )
-    
-    return workflow.compile(checkpointer=None)
+workflow.set_entry_point("check_overdue")
 
-graph = create_graph()
+workflow.add_conditional_edges(
+    "check_overdue",
+    route_after_overdue,
+    {
+        "check_cooldown": "check_cooldown",
+        "__end__": END
+    }
+)
+
+workflow.add_conditional_edges(
+    "check_cooldown",
+    route_after_cooldown,
+    {
+        "retrieve_client_context": "retrieve_client_context",
+        "log_blocked": "log_blocked"
+    }
+)
+
+workflow.add_edge("log_blocked", END)
+
+workflow.add_edge("retrieve_client_context", "classify_reply")
+
+workflow.add_conditional_edges(
+    "classify_reply",
+    route_after_classification,
+    {
+        "draft_email": "draft_email",
+        "execute_action": "execute_action"
+    }
+)
+
+workflow.add_edge("draft_email", "evaluate_compliance")
+
+workflow.add_conditional_edges(
+    "evaluate_compliance",
+    route_after_compliance,
+    {
+        "call_razorpay_tools": "call_razorpay_tools",
+        "execute_action": "execute_action",
+        "draft_email": "draft_email"
+    }
+)
+
+workflow.add_edge("call_razorpay_tools", "execute_action")
+
+workflow.add_edge("execute_action", "simulate_client")
+
+workflow.add_edge("simulate_client", END)
+
+compiled_graph = workflow.compile()

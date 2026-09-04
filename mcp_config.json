@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "razorpay": {
+      "url": "https://mcp.razorpay.com/mcp",
+      "headers": {
+        "Authorization": "Basic ${RAZORPAY_MCP_AUTH}"
+      }
+    },
+    "revenueguard_internal": {
+      "command": "python",
+      "args": ["-m", "src.mcp_server.server"]
+    }
+  }
+}
