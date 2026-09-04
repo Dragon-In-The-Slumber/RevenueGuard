@@ -1,7 +1,6 @@
 databases:
   - name: revenueguard-db
     databaseName: revenueguard
-    user: postgres
     plan: free
 
 services:
