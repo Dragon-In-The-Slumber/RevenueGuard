@@ -6,8 +6,8 @@ from src.domain.clients import get_profile, profile_as_dict, stage_rank
 from src.ai.agent_policy import choose_action
 from src.graph import policy_guard
 from src.tools import registry as tools
+from src.simulation import client_env
 from langchain_core.messages import HumanMessage
-from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.prebuilt import ToolNode
 from datetime import datetime, timedelta
@@ -387,6 +387,43 @@ def _decision_context(state: RecoveryState) -> dict:
     }
 
 
+LADDER_STAGE_MAP = {
+    "OVERDUE": "STAGE_1",
+    "NOTIFIED_1": "STAGE_2",
+    "NOTIFIED_2": "STAGE_3",
+    "NOTIFIED_3": "STAGE_4",
+    "PAUSED_PTP": "STAGE_2",
+}
+
+
+def _ladder_action(state: RecoveryState) -> dict:
+    """
+    The baseline the A/B measures against: a fixed-schedule chaser.
+
+    This is what the system did before Phase 2 — `stage_map[current_status]`, the
+    same treatment for every client regardless of profile. Kept as an explicit
+    policy so "our agent recovers X% vs Y% for a rule-based chaser, same seed,
+    same portfolio" is a controlled comparison rather than a claim.
+    """
+    current = state.get("new_status") or state["current_status"]
+    stage = LADDER_STAGE_MAP.get(current, "STAGE_1")
+    return {
+        "action": "SEND_EMAIL",
+        "stage": stage,
+        "wait_days": None,
+        "discount_pct": None,
+        "instalments": None,
+        "channel": None,
+        "reasoning": (
+            f"Fixed ladder: {current} always advances to {stage}, "
+            "regardless of client profile or history."
+        ),
+        "confidence": 1.0,
+        "expected_outcome": "Client receives the next scheduled notice.",
+        "source": "fixed_ladder",
+    }
+
+
 async def decide_action(state: RecoveryState) -> RecoveryState:
     """
     The agent chooses an intervention.
@@ -398,7 +435,10 @@ async def decide_action(state: RecoveryState) -> RecoveryState:
     state.setdefault("visited_nodes", []).append("decide_action")
 
     ctx = _decision_context(state)
-    action = await choose_action(ctx)
+    if state.get("policy") == "ladder":
+        action = _ladder_action(state)
+    else:
+        action = await choose_action(ctx)
     state["proposed_action"] = action
 
     considered = ", ".join(
@@ -864,52 +904,103 @@ async def execute_action(state: RecoveryState) -> RecoveryState:
     return state
 
 async def simulate_client(state: RecoveryState) -> RecoveryState:
-    # Simulate client replies or payments
-    rand = random.random()
-    if state.get("new_status") in ["NOTIFIED_1", "NOTIFIED_2", "NOTIFIED_3"]:
-        if rand < 0.15: # 15% chance to pay outright
+    """
+    SIMULATED ENVIRONMENT — not agent logic.
+
+    Delegates to src/simulation/client_env.py, which is explicitly labelled as the
+    test harness. The response now depends on the action the agent chose, not only
+    the stage, so agent judgment can actually affect the outcome. Seeded, so the
+    same seed reproduces the same run.
+    """
+    state.setdefault("visited_nodes", []).append("simulate_client")
+    seed = state.get("sim_seed", 42)
+    status = state.get("new_status") or state["current_status"]
+
+    # A promise whose date has arrived is resolved rather than re-rolled.
+    promised = _parse_dt(state.get("promised_date"))
+    virtual_now = _parse_dt(state.get("virtual_date")) or datetime.utcnow()
+    if status == "PAUSED_PTP" and promised and virtual_now >= promised:
+        if client_env.resolve_promise(state, seed):
             state["new_status"] = "RECOVERED"
             state["audit_entries"].append({
                 "event_type": "PAYMENT_RECEIVED",
-                "reasoning": "Client paid after notification",
+                "reasoning": "[SIMULATED ENVIRONMENT] Client honoured their promise.",
                 "action": "Marked as RECOVERED",
                 "rule": None,
-                "content": None
+                "content": None,
             })
-        elif rand < 0.25: # 10% chance to promise
-            mock_email = "We will pay this by next Friday."
-            intent_data = await classify_client_intent(mock_email)
-            if intent_data.get("intent") == "PROMISE_TO_PAY":
-                state["new_status"] = "PAUSED_PTP"
-                state["extracted_entities"] = {"promised_date": (datetime.utcnow() + timedelta(days=7)).isoformat()}
-                state["audit_entries"].append({
-                    "event_type": "INTENT_CLASSIFIED",
-                    "reasoning": f"Classified PROMISE_TO_PAY ({intent_data.get('confidence')} conf).",
-                    "action": "Paused workflow",
-                    "rule": "Pause escalation on PTP intent",
-                    "content": mock_email
-                })
-        elif rand < 0.30: # 5% chance to dispute
-            mock_email = "The amount on this invoice is incorrect, we didn't use that much service."
-            intent_data = await classify_client_intent(mock_email)
-            if intent_data.get("intent") == "DISPUTE":
-                state["new_status"] = "DISPUTE"
-                state["audit_entries"].append({
-                    "event_type": "INTENT_CLASSIFIED",
-                    "reasoning": f"Classified DISPUTE ({intent_data.get('confidence')} conf).",
-                    "action": "Halted and routed to human",
-                    "rule": "Halt on DISPUTE intent",
-                    "content": mock_email
-                })
-    elif state.get("new_status") == "PAUSED_PTP" or state["current_status"] == "PAUSED_PTP":
-        # Keep promise 70% of time (in real code, check promised_date)
-        if rand < 0.70:
-            state["new_status"] = "RECOVERED"
+        else:
             state["audit_entries"].append({
-                "event_type": "PAYMENT_RECEIVED",
-                "reasoning": "Client fulfilled promise",
-                "action": "Marked as RECOVERED",
-                "rule": None,
-                "content": None
+                "event_type": "PTP_BROKEN",
+                "reasoning": (
+                    "[SIMULATED ENVIRONMENT] Promise date passed without payment "
+                    f"(this persona breaks {int(get_profile(state['client_name']).ptp_break_rate * 100)}% "
+                    "of commitments)."
+                ),
+                "action": "Promise broken; escalation may resume",
+                "rule": "Stop 2 expired",
+                "content": None,
             })
+        return state
+
+    # An idle tick — the ladder blocked by cooldown, or the agent choosing WAIT —
+    # is modelled identically: the client may still pay unprompted, weighted by
+    # how reliable this persona is. Scoring the two differently would hand the
+    # agent an advantage it did not earn.
+    if not state.get("effective_action"):
+        state["effective_action"] = {"action": "WAIT", "_idle": True}
+
+    result = client_env.simulate_response(state, seed)
+
+    # Over-escalation costs relationship score, which lowers future p(pay).
+    damage, damage_note = client_env.relationship_damage(state)
+    if damage:
+        state["relationship_score"] = round(max(0.0, state.get("relationship_score", 1.0) - damage), 3)
+        state["audit_entries"].append({
+            "event_type": "RELATIONSHIP_DAMAGED",
+            "reasoning": f"[SIMULATED ENVIRONMENT] {damage_note}",
+            "action": f"Relationship score reduced to {state['relationship_score']}",
+            "rule": "Over-escalation has a cost",
+            "content": None,
+        })
+
+    if result["outcome"] in ("PAID", "PARTIAL_PAID"):
+        state["new_status"] = "RECOVERED"
+        state["audit_entries"].append({
+            "event_type": "PAYMENT_RECEIVED",
+            "reasoning": f"[SIMULATED ENVIRONMENT] {result['explanation']}",
+            "action": "Marked as RECOVERED"
+                      + (" (undisputed portion)" if result["outcome"] == "PARTIAL_PAID" else ""),
+            "rule": None,
+            "content": result.get("reply_text"),
+        })
+    elif result["outcome"] == "PROMISED":
+        state["new_status"] = "PAUSED_PTP"
+        state["promised_date"] = result["promised_date"]
+        state["extracted_entities"] = {"promised_date": result["promised_date"]}
+        state["audit_entries"].append({
+            "event_type": "INTENT_CLASSIFIED",
+            "reasoning": f"[SIMULATED ENVIRONMENT] Client promised payment. {result['explanation']}",
+            "action": f"Paused until {result['promised_date'][:10]}",
+            "rule": "Stop 2: Pause escalation until promised date + grace",
+            "content": result.get("reply_text"),
+        })
+    elif result["outcome"] == "DISPUTED":
+        state["new_status"] = "DISPUTE"
+        state["audit_entries"].append({
+            "event_type": "INTENT_CLASSIFIED",
+            "reasoning": f"[SIMULATED ENVIRONMENT] Client disputed. {result['explanation']}",
+            "action": "Halted and routed to human for dispute resolution",
+            "rule": "Stop 3: Halt automated collection on dispute",
+            "content": result.get("reply_text"),
+        })
+    else:
+        state["audit_entries"].append({
+            "event_type": "NO_RESPONSE",
+            "reasoning": f"[SIMULATED ENVIRONMENT] No response. {result['explanation']}",
+            "action": "Client did not respond",
+            "rule": None,
+            "content": None,
+        })
+
     return state

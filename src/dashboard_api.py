@@ -353,3 +353,102 @@ async def get_compliance_rejected(db: AsyncSession = Depends(get_db)):
         })
         
     return {"rejected": rejected}
+
+
+# Events that describe what happened *after* a decision was taken.
+_OUTCOME_EVENTS = {
+    "EMAIL_SENT", "AGENT_WAIT", "CHANNEL_SWITCHED", "PAYMENT_RECEIVED",
+    "NO_RESPONSE", "INTENT_CLASSIFIED", "STATUS_CHANGED", "HUMAN_ESCALATED",
+    "RELATIONSHIP_DAMAGED", "PTP_BROKEN",
+}
+
+
+@router.get("/api/invoices/{invoice_id}/decisions")
+async def get_decision_explorer(invoice_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Every decision point for one invoice, reconstructed from the audit trail.
+
+    A decision point is: what the agent considered, what it chose and why, what
+    the policy guard said about it, which tools ran, and what actually happened
+    afterwards. The audit trail already records all of this; it was only ever
+    rendered as a flat list, so the causal chain was invisible.
+    """
+    result = await db.execute(select(Invoice).where(Invoice.id == invoice_id))
+    invoice = result.scalar_one_or_none()
+    if not invoice:
+        raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
+
+    logs = (await db.execute(
+        select(AuditLog)
+        .where(AuditLog.invoice_id == invoice_id)
+        .order_by(AuditLog.timestamp.asc(), AuditLog.id.asc())
+    )).scalars().all()
+
+    decisions = []
+    current = None
+
+    def close(node):
+        if node:
+            decisions.append(node)
+
+    for log in logs:
+        if log.event_type == "AGENT_DECISION":
+            close(current)
+            # content_snapshot carries "Expected outcome: ...\nDecision source: ..."
+            expected, source = None, None
+            for line in (log.content_snapshot or "").splitlines():
+                if line.startswith("Expected outcome:"):
+                    expected = line.split(":", 1)[1].strip()
+                elif line.startswith("Decision source:"):
+                    source = line.split(":", 1)[1].strip()
+
+            current = {
+                "timestamp": log.timestamp.isoformat(),
+                "chose": log.action_taken,
+                "reasoning": log.agent_reasoning,
+                # rule_applied holds "Alternatives considered: A, B, C"
+                "considered": (log.rule_applied or "").replace("Alternatives considered: ", ""),
+                "expected_outcome": expected,
+                "source": source,
+                "guard": None,
+                "tools": [],
+                "outcomes": [],
+                "compliance": [],
+            }
+            continue
+
+        if current is None:
+            continue
+
+        if log.event_type == "ACTION_VETOED":
+            current["guard"] = {
+                "rule": log.rule_applied,
+                "detail": log.agent_reasoning,
+                "substitution": log.action_taken,
+            }
+        elif log.event_type == "TOOL_CALL":
+            current["tools"].append({"call": log.action_taken, "why": log.agent_reasoning})
+        elif log.event_type in ("COMPLIANCE_PASSED", "COMPLIANCE_FAILED"):
+            current["compliance"].append({
+                "verdict": "PASS" if log.event_type == "COMPLIANCE_PASSED" else "FAIL",
+                "reason": log.agent_reasoning,
+            })
+        elif log.event_type in _OUTCOME_EVENTS:
+            current["outcomes"].append({
+                "event": log.event_type,
+                "what": log.action_taken,
+                "detail": log.agent_reasoning,
+                "rule": log.rule_applied,
+            })
+
+    close(current)
+
+    return {
+        "invoice_id": invoice.id,
+        "client_name": invoice.client_name,
+        "amount": float(invoice.amount),
+        "status": invoice.status.value,
+        "relationship_score": invoice.relationship_score if invoice.relationship_score is not None else 1.0,
+        "decision_count": len(decisions),
+        "decisions": decisions,
+    }

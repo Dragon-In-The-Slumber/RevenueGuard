@@ -13,7 +13,8 @@ from src.graph.builder import compiled_graph
 
 def build_recovery_state(invoice: Invoice, virtual_date: datetime, last_email_dt: datetime | None,
                          client_reply: str | None = None, client_replies: int = 0,
-                         interaction_history: list | None = None) -> dict:
+                         interaction_history: list | None = None,
+                         sim_seed: int = 42, policy: str = "agent") -> dict:
     """
     Build a complete RecoveryState for one invoice.
 
@@ -48,6 +49,8 @@ def build_recovery_state(invoice: Invoice, virtual_date: datetime, last_email_dt
         "visited_nodes": [],
         "relationship_score": invoice.relationship_score if invoice.relationship_score is not None else 1.0,
         "tool_calls": [],
+        "sim_seed": sim_seed,
+        "policy": policy,
         "client_reply": client_reply,
         "classified_intent": None,
         "intent_confidence": None,
@@ -142,7 +145,7 @@ def _audit_rows(invoice_id: int, entries: list[dict], virtual_date: datetime) ->
 
 
 async def process_simulation_tick(db: AsyncSession, virtual_date: datetime,
-                                  broadcast=None):
+                                  broadcast=None, sim_seed: int = 42, policy: str = "agent"):
     """
     Advance the simulation by one day.
 
@@ -164,6 +167,8 @@ async def process_simulation_tick(db: AsyncSession, virtual_date: datetime,
             inv, virtual_date, ctx[inv.id]["last_email"],
             client_replies=ctx[inv.id]["replies"],
             interaction_history=ctx[inv.id]["history"],
+            sim_seed=sim_seed,
+            policy=policy,
         )
         for inv in invoices
     ]

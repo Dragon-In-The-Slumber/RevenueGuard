@@ -24,8 +24,20 @@ def route_after_stop_conditions(state: RecoveryState) -> str:
 
 
 def route_after_cooldown(state: RecoveryState) -> str:
+    """
+    Who enforces the contact cooldown depends on the policy.
+
+    The fixed-ladder baseline halts here — that is what a rule-based chaser does.
+    The agent does not: it is allowed to decide every tick, and guard rule 1
+    substitutes WAIT when it proposes contact too soon. Halting the agent before
+    decide_action made WAIT unreachable and left guard rule 1 as dead code, so
+    the agent could never behave differently from the ladder and the A/B measured
+    nothing.
+    """
     if not state.get("should_send_email"):
-        return "log_blocked"
+        if state.get("policy") == "ladder":
+            return "log_blocked"
+        return "retrieve_client_context"
     return "retrieve_client_context"
 
 

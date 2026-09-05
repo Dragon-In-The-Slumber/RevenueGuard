@@ -3,6 +3,7 @@ import { useApi } from "@/hooks/useApi";
 import { Invoice } from "@/lib/types";
 import InvoiceHeader from "@/components/invoice-detail/InvoiceHeader";
 import AuditTimeline from "@/components/invoice-detail/AuditTimeline";
+import DecisionExplorer from "@/components/invoice-detail/DecisionExplorer";
 import RagContextPanel from "@/components/invoice-detail/RagContextPanel";
 import ReplySimulator from "@/components/invoice-detail/ReplySimulator";
 import QueryBoundary from "@/components/QueryBoundary";
@@ -64,6 +65,8 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
         <div className="lg:col-span-2 space-y-6">
           <InvoiceHeader invoice={invoice} />
           
+          <DecisionExplorer invoiceId={id} />
+
           <div className="bg-white/[0.02] rounded-xl border border-white/5 p-6 shadow-inner">
             <AuditTimeline invoiceId={id} />
           </div>
