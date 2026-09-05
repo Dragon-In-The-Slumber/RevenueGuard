@@ -72,7 +72,7 @@ async def get_invoices_by_client_name(db: AsyncSession, client_name: str):
     )
     return result.scalars().all()
 
-async def log_audit_event(db: AsyncSession, invoice_id: int, event_type: str, reasoning: str, action: str, timestamp: datetime = None, rule_applied: str = None, content_snapshot: str = None):
+async def log_audit_event(db: AsyncSession, invoice_id: int, event_type: str, reasoning: str, action: str, timestamp: datetime = None, rule_applied: str = None, content_snapshot: str = None, compliance_verdict: str = None):
     log = AuditLog(
         invoice_id=invoice_id,
         event_type=event_type,
@@ -80,6 +80,7 @@ async def log_audit_event(db: AsyncSession, invoice_id: int, event_type: str, re
         rule_applied=rule_applied,
         action_taken=action,
         content_snapshot=content_snapshot,
+        compliance_verdict=compliance_verdict,
         timestamp=timestamp or datetime.utcnow()
     )
     db.add(log)

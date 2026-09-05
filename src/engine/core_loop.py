@@ -24,7 +24,7 @@ async def process_simulation_tick(db: AsyncSession, virtual_date: datetime):
             "due_date": invoice.due_date.isoformat(),
             "current_status": invoice.status.value if hasattr(invoice.status, "value") else invoice.status,
             "days_overdue": (virtual_date - invoice.due_date).days,
-            "escalation_stage": "STAGE_1",
+            "escalation_stage": invoice.escalation_stage or "STAGE_1",
             "client_reply": None,
             "classified_intent": None,
             "intent_confidence": None,
@@ -49,6 +49,12 @@ async def process_simulation_tick(db: AsyncSession, virtual_date: datetime):
         # Apply DB changes
         if final_state.get("new_status"):
             invoice.status = InvoiceStatus(final_state["new_status"])
+            
+        if final_state.get("escalation_stage"):
+            invoice.escalation_stage = final_state["escalation_stage"]
+
+        if final_state.get("payment_link_url"):
+            invoice.razorpay_payment_link_id = final_state["payment_link_url"]
         
         if final_state.get("extracted_entities") and "promised_date" in final_state["extracted_entities"]:
             invoice.promised_date = datetime.fromisoformat(final_state["extracted_entities"]["promised_date"])
@@ -63,7 +69,8 @@ async def process_simulation_tick(db: AsyncSession, virtual_date: datetime):
                 entry["action"], 
                 virtual_date, 
                 rule_applied=entry.get("rule"), 
-                content_snapshot=entry.get("content")
+                content_snapshot=entry.get("content"),
+                compliance_verdict=entry.get("compliance_verdict")
             )
             processed_count += 1
 

@@ -28,8 +28,13 @@ Return JSON: {"verdict": "PASS" or "FAIL", "reason": "...", "suggestions": "..."
 
 async def evaluate_email_compliance(email_body: str, escalation_stage: str, context: str = "") -> dict:
     if not settings.anthropic_api_key or settings.anthropic_api_key == "your_anthropic_api_key_here":
-        logger.warning("Anthropic API key missing, skipping compliance check (mock PASS)")
-        return {"verdict": "PASS", "reason": "Mock pass due to missing API key", "suggestions": ""}
+        import random
+        if random.random() < 0.2:
+            logger.warning("Anthropic API key missing, skipping compliance check (mock FAIL)")
+            return {"verdict": "FAIL", "reason": "Mock failure: Tone is too aggressive (missing API key)", "suggestions": "Soften the language"}
+        else:
+            logger.warning("Anthropic API key missing, skipping compliance check (mock PASS)")
+            return {"verdict": "PASS", "reason": "Mock pass due to missing API key", "suggestions": ""}
         
     try:
         # Use Claude 3.5 Sonnet

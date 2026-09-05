@@ -20,6 +20,9 @@ export default function Sidebar() {
   const { data: health, error } = useApi<{status: string}>("/health");
   const isConnected = !!health && !error;
 
+  // Fetch virtual date
+  const { data: simState } = useApi<{virtual_date: string}>("/api/simulation/state");
+
   return (
     <aside className="sidebar flex flex-col h-full bg-[#0B0F19] border-r border-white/5 w-64">
       {/* Logo */}
@@ -43,7 +46,11 @@ export default function Sidebar() {
         <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-white/25 mb-1">Virtual Date</p>
         <div className="flex items-center gap-2">
           <span className="text-xl">⏱️</span>
-          <span className="text-white/90 font-mono text-sm">Waiting for tick...</span>
+          <span className="text-white/90 font-mono text-sm">
+            {simState?.virtual_date ? new Date(simState.virtual_date).toLocaleDateString(undefined, {
+              year: 'numeric', month: 'short', day: 'numeric'
+            }) : "Waiting for tick..."}
+          </span>
         </div>
       </div>
 

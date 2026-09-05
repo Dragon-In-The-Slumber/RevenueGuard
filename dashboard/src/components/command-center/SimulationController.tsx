@@ -32,29 +32,22 @@ export default function SimulationController() {
     }
   };
 
-  const handleAutoRun = () => {
+  const handleAutoRun = async () => {
     if (autoRun) return;
     setAutoRun(true);
     setAutoRunProgress(0);
     
-    let ticks = 0;
-    const interval = setInterval(async () => {
-      if (ticks >= 30) {
-        clearInterval(interval);
-        setAutoRun(false);
-        return;
-      }
-      try {
+    try {
+      for (let i = 0; i < 30; i++) {
         const res: any = await apiPost("/api/simulation/tick", {});
         if (res.virtual_date) setVirtualDate(res.virtual_date);
-        ticks++;
-        setAutoRunProgress(ticks);
-      } catch (e) {
-        console.error("Tick failed", e);
-        clearInterval(interval);
-        setAutoRun(false);
+        setAutoRunProgress(i + 1);
       }
-    }, 1000);
+    } catch (e) {
+      console.error("Tick failed", e);
+    } finally {
+      setAutoRun(false);
+    }
   };
 
   return (

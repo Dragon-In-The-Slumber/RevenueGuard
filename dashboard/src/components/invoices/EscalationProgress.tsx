@@ -1,8 +1,7 @@
 export default function EscalationProgress({ stage }: { stage: string }) {
-  // STAGE_1 -> 1, STAGE_2 -> 2, etc. Default 0 if unknown.
-  let level = 0;
-  if (stage === "STAGE_1") level = 1;
-  else if (stage === "STAGE_2") level = 2;
+  // STAGE_1 -> 1, STAGE_2 -> 2, etc. Default to 1 if unknown or empty.
+  let level = 1;
+  if (stage === "STAGE_2") level = 2;
   else if (stage === "STAGE_3") level = 3;
   else if (stage === "STAGE_4") level = 4;
 

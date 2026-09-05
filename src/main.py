@@ -57,18 +57,26 @@ async def create_simulation_batch(request: SimulationBatchRequest, db: AsyncSess
     return {"status": "success", "message": f"Generated {count} invoices."}
 
 @app.post("/api/simulation/tick")
-async def advance_simulation_tick(db: AsyncSession = Depends(get_db)):
-    """Advances the virtual simulation date by 1 day and processes the core loop."""
-    simulation_state["virtual_date"] += timedelta(days=1)
-    processed_count = await process_simulation_tick(db, simulation_state["virtual_date"])
-    
+async def advance_simulation_tick(days: int = 1, db: AsyncSession = Depends(get_db)):
+    """Advances the virtual simulation date and processes the core loop."""
+    total_processed = 0
+    for _ in range(days):
+        simulation_state["virtual_date"] += timedelta(days=1)
+        processed = await process_simulation_tick(db, simulation_state["virtual_date"])
+        total_processed += processed
+        
     await manager.broadcast({"event": "state_updated", "virtual_date": simulation_state["virtual_date"].isoformat()})
     
     return {
         "status": "success", 
         "virtual_date": simulation_state["virtual_date"].isoformat(),
-        "invoices_processed": processed_count
+        "invoices_processed": total_processed
     }
+
+@app.get("/api/simulation/state")
+async def get_simulation_state():
+    """Returns the current virtual date for the UI."""
+    return {"virtual_date": simulation_state["virtual_date"].isoformat()}
 
 class ClientReplyRequest(BaseModel):
     message: str
@@ -103,9 +111,36 @@ async def client_reply(id: int, request: ClientReplyRequest, db: AsyncSession = 
 @app.post("/api/webhooks/razorpay")
 async def razorpay_webhook(payload: dict, db: AsyncSession = Depends(get_db)):
     """Receives simulated Razorpay webhook events (invoice.paid, payment.dispute.created, etc.)"""
+    from src.persistence.crud import log_audit_event
     event = payload.get("event")
     print(f"Received Webhook: {event}")
     
-    # Normally this would route through execute_action or transition states
+    try:
+        inv_str = payload.get("payload", {}).get("invoice", {}).get("entity", {}).get("id", "")
+        if inv_str.startswith("inv_"):
+            invoice_id = int(inv_str.replace("inv_", ""))
+            
+            result = await db.execute(select(Invoice).where(Invoice.id == invoice_id))
+            invoice = result.scalar_one_or_none()
+            
+            if invoice:
+                if event == "invoice.paid" or event == "payment_link.paid" or event == "virtual_account.credited":
+                    invoice.status = InvoiceStatus("RECOVERED")
+                    await log_audit_event(
+                        db, invoice.id, "PAYMENT_RECEIVED", f"Webhook {event}", "Marked as RECOVERED", simulation_state["virtual_date"]
+                    )
+                elif event == "payment.dispute.created":
+                    invoice.status = InvoiceStatus("DISPUTE")
+                    await log_audit_event(
+                        db, invoice.id, "STATUS_CHANGED", f"Webhook {event}", "Routed to human for dispute resolution", simulation_state["virtual_date"]
+                    )
+                elif event == "payment.failed":
+                    await log_audit_event(
+                        db, invoice.id, "PAYMENT_FAILED", f"Webhook {event}", "Logged failed payment attempt", simulation_state["virtual_date"]
+                    )
+                await db.commit()
+    except Exception as e:
+        print(f"Webhook error: {e}")
+    
     await manager.broadcast({"event": "state_updated"})
     return {"status": "received"}

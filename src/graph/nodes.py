@@ -81,20 +81,20 @@ async def draft_email(state: RecoveryState) -> RecoveryState:
         "OVERDUE": "STAGE_1",
         "NOTIFIED_1": "STAGE_2",
         "NOTIFIED_2": "STAGE_3",
-        "NOTIFIED_3": "UNRESPONSIVE",
+        "NOTIFIED_3": "STAGE_4",
         "PAUSED_PTP": "STAGE_2" # Broken promise
     }
     
     current = state.get("new_status") or state["current_status"]
     stage = stage_map.get(current, "STAGE_1")
     
-    if stage == "UNRESPONSIVE":
-        state["new_status"] = "UNRESPONSIVE"
+    if stage == "STAGE_4" or stage == "UNRESPONSIVE":
+        state["new_status"] = "HUMAN_ESCALATED"
         state["audit_entries"].append({
             "event_type": "STATUS_CHANGED",
-            "reasoning": "Max automated attempts reached",
+            "reasoning": "Requires human approval before sending STAGE_4",
             "action": "Routed to human",
-            "rule": None,
+            "rule": "Formal final notice requires human approval",
             "content": None
         })
         state["should_send_email"] = False
@@ -143,7 +143,8 @@ async def evaluate_compliance(state: RecoveryState) -> RecoveryState:
             "reasoning": state["compliance_reason"],
             "action": "Rejected email draft",
             "rule": "Compliance Judge",
-            "content": state["drafted_email"]
+            "content": state["drafted_email"],
+            "compliance_verdict": state["compliance_verdict"]
         })
     else:
         state["audit_entries"].append({
@@ -151,7 +152,8 @@ async def evaluate_compliance(state: RecoveryState) -> RecoveryState:
             "reasoning": state["compliance_reason"] or "Email meets all requirements.",
             "action": "Approved email draft",
             "rule": "Compliance Judge",
-            "content": state["drafted_email"]
+            "content": state["drafted_email"],
+            "compliance_verdict": state["compliance_verdict"]
         })
     
     return state
@@ -229,6 +231,14 @@ async def execute_action(state: RecoveryState) -> RecoveryState:
                 "content": None
             })
             state["new_status"] = "HUMAN_ESCALATED"
+    elif state.get("new_status") == "DISPUTE":
+        state["audit_entries"].append({
+            "event_type": "STATUS_CHANGED",
+            "reasoning": "Client filed a dispute",
+            "action": "Routed to human for dispute resolution",
+            "rule": "Halt on DISPUTE intent",
+            "content": None
+        })
     return state
 
 async def simulate_client(state: RecoveryState) -> RecoveryState:
