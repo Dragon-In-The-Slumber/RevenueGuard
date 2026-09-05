@@ -2,12 +2,22 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from src.config import settings
 from src.persistence.models import Base
 
+import urllib.parse as urlparse
+
 db_url = settings.database_url
 if db_url.startswith("postgresql://"):
     db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-if "sslmode=" in db_url:
-    db_url = db_url.replace("sslmode=", "ssl=")
+parsed = urlparse.urlparse(db_url)
+query_params = urlparse.parse_qs(parsed.query)
+
+if "sslmode" in query_params:
+    query_params["ssl"] = query_params.pop("sslmode")
+
+query_params.pop("channel_binding", None)
+
+new_query = urlparse.urlencode(query_params, doseq=True)
+db_url = parsed._replace(query=new_query).geturl()
 
 engine = create_async_engine(db_url, echo=True)
 
