@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { Invoice } from "@/lib/types";
-import { apiFetch } from "@/lib/api";
+import { fireWebhook } from "@/lib/api";
+import QueryBoundary from "@/components/QueryBoundary";
 
 const EVENT_TYPES = [
   { id: "invoice.paid", label: "Payment received in full" },
@@ -23,7 +24,7 @@ export interface WebhookEventLog {
 }
 
 export default function WebhookFirePanel({ onEventFired }: { onEventFired: (log: WebhookEventLog) => void }) {
-  const { data } = useApi<{ invoices: Invoice[] }>("/api/invoices");
+  const { data, error, isLoading, mutate } = useApi<{ invoices: Invoice[] }>("/api/invoices");
   const invoices = data?.invoices || [];
   
   const [selectedInvoice, setSelectedInvoice] = useState<string>("");
@@ -36,24 +37,8 @@ export default function WebhookFirePanel({ onEventFired }: { onEventFired: (log:
     
     setLoading(true);
     try {
-      const payload = {
-        event: selectedEvent,
-        payload: {
-          invoice: {
-            entity: {
-              id: `inv_${selectedInvoice}`,
-              receipt: `rcpt_${selectedInvoice}`,
-              status: selectedEvent.includes("paid") ? "paid" : "issued"
-            }
-          }
-        }
-      };
+      const res = await fireWebhook(selectedEvent, parseInt(selectedInvoice));
 
-      const res = await apiFetch("/api/webhooks/razorpay", {
-        method: "POST",
-        body: JSON.stringify(payload)
-      });
-      
       onEventFired({
         id: Math.random().toString(36).substr(2, 9),
         timestamp: new Date().toISOString(),
@@ -87,6 +72,14 @@ export default function WebhookFirePanel({ onEventFired }: { onEventFired: (log:
       <div className="space-y-4">
         <div>
           <label className="block text-[10px] uppercase font-mono text-white/50 mb-2">Target Invoice</label>
+          <QueryBoundary
+            error={error}
+            loading={isLoading}
+            isEmpty={invoices.length === 0}
+            emptyMessage="No invoices to target. Generate a batch first."
+            onRetry={() => mutate()}
+            loadingFallback={<div className="h-10 animate-pulse rounded-lg bg-white/5" />}
+          >
           <select 
             className="w-full bg-black/40 border border-white/10 text-white rounded-lg px-4 py-2 outline-none focus:border-[#00F0FF] transition-colors"
             value={selectedInvoice}
@@ -99,6 +92,7 @@ export default function WebhookFirePanel({ onEventFired }: { onEventFired: (log:
               </option>
             ))}
           </select>
+          </QueryBoundary>
         </div>
 
         <div>

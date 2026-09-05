@@ -19,6 +19,10 @@ services:
     volumes:
       - .:/app
       - ./chroma_data:/app/chroma_data
+      # ChromaDB downloads a 79MB ONNX embedding model on first use. Without a
+      # volume it lands in the container layer and is re-downloaded on every
+      # rebuild — and a timed-out download fails application startup outright.
+      - chroma_models:/home/appuser/.cache/chroma
 
   db:
     image: postgres:15-alpine
@@ -46,3 +50,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  chroma_models:

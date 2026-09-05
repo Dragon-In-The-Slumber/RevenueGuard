@@ -1,21 +1,35 @@
 "use client";
 import { useState } from "react";
-import { apiPost } from "@/lib/api";
+import { fireWebhook, sendClientReply } from "@/lib/api";
+import { useToast } from "@/components/ToastProvider";
+import { useSWRConfig } from "swr";
 
 export default function ReplySimulator({ invoiceId }: { invoiceId: number }) {
   const [loading, setLoading] = useState(false);
   const [customText, setCustomText] = useState("");
+  const { addToast } = useToast();
+  const { mutate } = useSWRConfig();
+
+  // Refresh the panels this invoice's page is showing, rather than every key in the app.
+  const refreshInvoice = () => {
+    mutate(`/api/invoices/${invoiceId}`);
+    mutate(`/api/invoices/${invoiceId}/audit-logs`);
+    mutate("/api/audit-logs");
+  };
 
   const sendReply = async (message: string) => {
     if (!message.trim()) return;
     try {
       setLoading(true);
-      await apiPost(`/api/invoices/${invoiceId}/reply`, { message });
-      alert("Reply sent! Check Audit Timeline for intent classification.");
+      const res = await sendClientReply(invoiceId, message);
+      addToast(
+        `Classified ${res.intent ?? "UNKNOWN"} — ${res.old_status} → ${res.new_status}`,
+        res.old_status === res.new_status ? "info" : "success"
+      );
       setCustomText("");
+      refreshInvoice();
     } catch (e) {
-      console.error(e);
-      alert("Failed to send reply");
+      addToast(e instanceof Error ? e.message : "Failed to send reply", "error");
     } finally {
       setLoading(false);
     }
@@ -24,14 +38,11 @@ export default function ReplySimulator({ invoiceId }: { invoiceId: number }) {
   const simulateWebhook = async (event: string) => {
     try {
       setLoading(true);
-      await apiPost(`/api/webhooks/razorpay`, { 
-        event, 
-        payload: { invoice_id: String(invoiceId) } 
-      });
-      alert(`Webhook ${event} fired!`);
+      const res = await fireWebhook(event, invoiceId);
+      addToast(`${event}: ${res.old_status} → ${res.new_status}`, "success");
+      refreshInvoice();
     } catch (e) {
-      console.error(e);
-      alert("Failed to fire webhook");
+      addToast(e instanceof Error ? e.message : "Failed to fire webhook", "error");
     } finally {
       setLoading(false);
     }

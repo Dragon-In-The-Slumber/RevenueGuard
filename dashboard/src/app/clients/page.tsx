@@ -4,6 +4,7 @@ import { useApi } from "@/hooks/useApi";
 import ClientCard from "@/components/clients/ClientCard";
 import RagSearchBar from "@/components/clients/RagSearchBar";
 import ClientInvoiceList from "@/components/clients/ClientInvoiceList";
+import QueryBoundary from "@/components/QueryBoundary";
 
 interface ClientData {
   name: string;
@@ -17,7 +18,7 @@ interface ClientData {
 }
 
 export default function ClientsPage() {
-  const { data } = useApi<{ clients: ClientData[] }>("/api/clients");
+  const { data, error, isLoading, mutate } = useApi<{ clients: ClientData[] }>("/api/clients");
   const clients = data?.clients || [];
   
   const [selectedClient, setSelectedClient] = useState<string | null>(null);
@@ -31,16 +32,31 @@ export default function ClientsPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {clients.slice(0, 4).map((client) => (
-          <ClientCard 
-            key={client.name} 
-            client={client} 
-            onClick={() => setSelectedClient(client.name)}
-            isSelected={selectedClient === client.name}
-          />
-        ))}
-      </div>
+      <QueryBoundary
+        error={error}
+        loading={isLoading}
+        isEmpty={clients.length === 0}
+        emptyMessage="No clients yet. Generate a batch from the Command Center."
+        onRetry={() => mutate()}
+        loadingFallback={
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="glass-panel h-40 animate-pulse" />
+            ))}
+          </div>
+        }
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {clients.slice(0, 4).map((client) => (
+            <ClientCard
+              key={client.name}
+              client={client}
+              onClick={() => setSelectedClient(client.name)}
+              isSelected={selectedClient === client.name}
+            />
+          ))}
+        </div>
+      </QueryBoundary>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <RagSearchBar />

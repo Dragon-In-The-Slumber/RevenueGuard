@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
+from datetime import timedelta
 from src.persistence.database import get_db
 from src.persistence.models import Invoice, AuditLog, InvoiceStatus
 from src.websocket import manager
@@ -88,7 +89,9 @@ async def get_invoice_audit_logs(invoice_id: str, db: AsyncSession = Depends(get
         select(AuditLog, Invoice.client_name)
         .join(Invoice, AuditLog.invoice_id == Invoice.id)
         .where(AuditLog.invoice_id == numeric_id)
-        .order_by(AuditLog.timestamp.asc())
+        # id breaks ties: entries within one tick are milliseconds apart, and a
+        # timestamp-only sort lets Postgres return them in any order.
+        .order_by(AuditLog.timestamp.asc(), AuditLog.id.asc())
     )
     
     trail = []
@@ -110,7 +113,7 @@ async def get_recent_audit_logs(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(AuditLog, Invoice.client_name)
         .join(Invoice, AuditLog.invoice_id == Invoice.id)
-        .order_by(AuditLog.timestamp.desc())
+        .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
         .limit(20)
     )
     
@@ -129,6 +132,9 @@ async def get_recent_audit_logs(db: AsyncSession = Depends(get_db)):
         })
     return {"logs": logs}
 
+COOLDOWN_DAYS = 4
+
+
 @router.get("/api/invoices")
 async def get_all_invoices(status: str = None, db: AsyncSession = Depends(get_db)):
     query = select(Invoice)
@@ -137,22 +143,52 @@ async def get_all_invoices(status: str = None, db: AsyncSession = Depends(get_db
     query = query.order_by(Invoice.due_date.desc())
     result = await db.execute(query)
     invoices = result.scalars().all()
-    
-    return {"invoices": [{
-        "id": inv.id,
-        "amount": float(inv.amount),
-        "client_name": inv.client_name,
-        "client_email": inv.client_email,
-        "due_date": inv.due_date.isoformat() if inv.due_date else None,
-        "status": inv.status,
-        "promised_date": inv.promised_date.isoformat() if inv.promised_date else None,
-        "escalation_stage": inv.escalation_stage,
-        "razorpay_payment_link_id": inv.razorpay_payment_link_id,
-        "razorpay_virtual_account_id": inv.razorpay_virtual_account_id
-    } for inv in invoices]}
+
+    # Real cooldown data. The Cooldown Board previously fabricated this with
+    # `(inv.id * 17) % 7` — a hash of the primary key on the panel whose whole
+    # purpose is proving the frequency limit is enforced.
+    last_contacts = await db.execute(
+        select(AuditLog.invoice_id, func.max(AuditLog.timestamp))
+        .where(AuditLog.event_type == "EMAIL_SENT")
+        .group_by(AuditLog.invoice_id)
+    )
+    last_map = {inv_id: ts for inv_id, ts in last_contacts}
+
+    blocked_counts = await db.execute(
+        select(AuditLog.invoice_id, func.count(AuditLog.id))
+        .where(AuditLog.event_type == "ESCALATION_BLOCKED")
+        .group_by(AuditLog.invoice_id)
+    )
+    blocked_map = {inv_id: c for inv_id, c in blocked_counts}
+
+    payload = []
+    for inv in invoices:
+        last = last_map.get(inv.id)
+        payload.append({
+            "id": inv.id,
+            "amount": float(inv.amount),
+            "client_name": inv.client_name,
+            "client_email": inv.client_email,
+            "due_date": inv.due_date.isoformat() if inv.due_date else None,
+            "status": inv.status,
+            "promised_date": inv.promised_date.isoformat() if inv.promised_date else None,
+            "escalation_stage": inv.escalation_stage,
+            "contact_attempts": inv.contact_attempts or 0,
+            "relationship_score": inv.relationship_score if inv.relationship_score is not None else 1.0,
+            "razorpay_payment_link_id": inv.razorpay_payment_link_id,
+            "razorpay_payment_link_url": inv.razorpay_payment_link_url,
+            "razorpay_virtual_account_id": inv.razorpay_virtual_account_id,
+            "last_contact_date": last.isoformat() if last else None,
+            "next_contact_allowed_date": (
+                (last + timedelta(days=COOLDOWN_DAYS)).isoformat() if last else None
+            ),
+            "escalations_blocked": blocked_map.get(inv.id, 0),
+        })
+    return {"invoices": payload}
 
 from fastapi import HTTPException
-from src.rag.vector_store import search_client_context
+from src.rag.vector_store import search_client_context, search_client_context_with_metadata
+from src.domain.clients import HERO_CLIENTS, get_profile, is_hero, profile_as_dict
 
 @router.get("/api/invoices/{invoice_id}")
 async def get_invoice_by_id(invoice_id: int, db: AsyncSession = Depends(get_db)):
@@ -176,79 +212,87 @@ async def get_invoice_by_id(invoice_id: int, db: AsyncSession = Depends(get_db))
 
 @router.get("/api/clients/{name}/context")
 async def get_client_rag_context(name: str):
-    # Call the actual ChromaDB RAG function
-    context = await search_client_context(name, "contract terms payment history risk")
-    
-    # Infer some mock profile data from the raw context string
-    risk = "LOW"
-    if "EXACT MATCH" not in context:
-        risk = "HIGH"
-        
+    # Retrieval returns a joined string plus the metadata stored with the document.
+    retrieved = await search_client_context_with_metadata(
+        name, "contract terms payment history risk"
+    )
+    profile = get_profile(name)
+
     return {
-        "context": context,
+        "context": retrieved["context"] or "No profile on file for this client.",
+        "matched": retrieved["matched"],
+        # Read structurally from the roster — never sniffed out of the prose.
         "profile": {
-            "tier": "Enterprise",
-            "contact": "Finance Team",
-            "risk_level": risk,
-            "terms": "Net-30",
-            "history_summary": "Usually pays on time"
-        }
+            "tier": profile.tier,
+            "contact": profile.contact,
+            "risk_level": profile.risk_level,
+            "terms": profile.terms,
+            "is_hero": profile.is_hero,
+            "max_autonomous_stage": profile.max_autonomous_stage,
+            "discount_authority_pct": profile.discount_authority_pct,
+            "allow_payment_plan": profile.allow_payment_plan,
+            "requires_split_billing": profile.requires_split_billing,
+            "escalation_patience_days": profile.escalation_patience_days,
+            "relationship_value": profile.relationship_value,
+            "guardrails": list(profile.guardrails),
+            "history_summary": (
+                retrieved["context"].strip().splitlines()[0].strip("- ")
+                if retrieved["context"] else "No history on file."
+            ),
+        },
     }
 
+
+@router.get("/api/clients/roster")
+async def get_client_roster():
+    """The hero roster itself, so the frontend never hardcodes client names."""
+    return {"clients": [profile_as_dict(p) for p in HERO_CLIENTS]}
+
 @router.get("/api/clients")
-async def get_clients(db: AsyncSession = Depends(get_db)):
-    # Group invoices by client
-    result = await db.execute(
-        select(
-            Invoice.client_name,
-            func.count(Invoice.id),
-            func.sum(Invoice.amount),
-            func.sum(
-                func.cast(Invoice.status == InvoiceStatus.RECOVERED, db.bind.dialect.type_compiler.process(func.cast(1, db.bind.dialect.type_compiler.process(db.bind.dialect.type_compiler.process(db.bind.dialect.type_compiler.process))))).cast(db.bind.dialect.type_compiler.process) 
-                # Actually, in SQLite, sum(case when status='RECOVERED' then amount else 0 end) is better
-            )
-        ).group_by(Invoice.client_name)
-    )
-    
-    # Better query for SQLite/Postgres compatibility
-    clients = []
-    
-    # Let's just fetch all and aggregate in Python for safety/simplicity in this demo
+async def get_clients(hero: bool = False, db: AsyncSession = Depends(get_db)):
+    # Aggregate in Python rather than SQL: the roster is small and this stays
+    # portable across Postgres and SQLite.
     all_invs = await db.execute(select(Invoice))
     invs = all_invs.scalars().all()
-    
+
     c_map = {}
     for inv in invs:
         c = inv.client_name
         if c not in c_map:
+            # Identity and policy come from the roster, not from hardcoded
+            # overrides that named clients which never existed in the database.
+            profile = get_profile(c)
             c_map[c] = {
-                "name": c, 
-                "invoice_count": 0, 
-                "total_amount": 0, 
-                "recovered_amount": 0, 
-                "risk_level": "LOW",
-                "tier": "Standard",
-                "terms": "Net-30",
-                "contact": "billing@company.com"
+                "name": c,
+                "invoice_count": 0,
+                "total_amount": 0,
+                "recovered_amount": 0,
+                "risk_level": profile.risk_level,
+                "tier": profile.tier,
+                "terms": profile.terms,
+                "contact": profile.contact,
+                "is_hero": profile.is_hero,
+                "max_autonomous_stage": profile.max_autonomous_stage,
+                "discount_authority_pct": profile.discount_authority_pct,
+                "relationship_value": profile.relationship_value,
+                "guardrails": list(profile.guardrails),
             }
-        
+
         c_map[c]["invoice_count"] += 1
         c_map[c]["total_amount"] += float(inv.amount)
         if inv.status == InvoiceStatus.RECOVERED:
             c_map[c]["recovered_amount"] += float(inv.amount)
-            
-    # Hardcode some risk levels and details based on hero clients for demo realism
-    for c, data in c_map.items():
-        if c == "Acme Corp": 
-            data.update({"risk_level": "LOW", "tier": "Enterprise", "terms": "Net-30", "contact": "finance@acmecorp.com"})
-        elif c == "Globex Solutions": 
-            data.update({"risk_level": "MEDIUM", "tier": "Mid-Market", "terms": "Net-45", "contact": "ap@globex.com"})
-        elif c == "Initech": 
-            data.update({"risk_level": "HIGH", "tier": "Enterprise", "terms": "Net-60", "contact": "lumbergh@initech.com"})
-        elif c == "Soylent Corp": 
-            data.update({"risk_level": "EXTREME", "tier": "SMB", "terms": "Net-15", "contact": "admin@soylent.com"})
 
-    return {"clients": list(c_map.values())}
+    clients = list(c_map.values())
+    if hero:
+        clients = [c for c in clients if c["is_hero"]]
+
+    # Hero clients first, in roster order, so the four written profiles are the
+    # four cards the demo shows — not whichever Faker names happened to sort first.
+    hero_order = {p.name: i for i, p in enumerate(HERO_CLIENTS)}
+    clients.sort(key=lambda c: (hero_order.get(c["name"], len(hero_order)), c["name"]))
+
+    return {"clients": clients}
 
 @router.get("/api/compliance/stats")
 async def get_compliance_stats(db: AsyncSession = Depends(get_db)):
@@ -270,26 +314,30 @@ async def get_compliance_stats(db: AsyncSession = Depends(get_db)):
 @router.get("/api/compliance/rejected")
 async def get_compliance_rejected(db: AsyncSession = Depends(get_db)):
     # Get all logs for context
-    all_logs_result = await db.execute(select(AuditLog).order_by(AuditLog.timestamp))
+    all_logs_result = await db.execute(
+        select(AuditLog).order_by(AuditLog.timestamp.asc(), AuditLog.id.asc())
+    )
     all_logs = all_logs_result.scalars().all()
-    
+
     result = await db.execute(
         select(AuditLog, Invoice.client_name)
         .join(Invoice, AuditLog.invoice_id == Invoice.id)
         .where(AuditLog.compliance_verdict == "FAIL")
-        .order_by(AuditLog.timestamp.desc())
+        .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
     )
-    
+
     rejected = []
     for audit, client_name in result:
-        # Find the next EMAIL_SENT or COMPLIANCE_PASSED log for this invoice
+        # Find the next EMAIL_SENT or COMPLIANCE_PASSED log for this invoice.
+        # Compare (timestamp, id): a rejection and its approved rewrite happen in
+        # the same tick, so timestamp alone never orders them.
         approved_content = None
         for log in all_logs:
-            if log.invoice_id == audit.invoice_id and log.timestamp > audit.timestamp:
+            if log.invoice_id == audit.invoice_id and (log.timestamp, log.id) > (audit.timestamp, audit.id):
                 if log.event_type in ["EMAIL_SENT", "COMPLIANCE_PASSED"] and log.content_snapshot:
                     approved_content = log.content_snapshot
                     break
-                    
+
         rejected.append({
             "id": audit.id,
             "invoice_id": audit.invoice_id,

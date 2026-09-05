@@ -3,9 +3,10 @@ import { useApi } from "@/hooks/useApi";
 import { FunnelEntry } from "@/lib/types";
 import { STATUS_CONFIG } from "@/lib/constants";
 import StatusBadge from "@/components/invoices/StatusBadge";
+import QueryBoundary from "@/components/QueryBoundary";
 
 export default function RecoveryFunnel() {
-  const { data: funnel } = useApi<{ funnel: FunnelEntry[] }>("/api/funnel");
+  const { data: funnel, error, isLoading, mutate } = useApi<{ funnel: FunnelEntry[] }>("/api/funnel");
   
   const entries = funnel?.funnel || [];
   const maxCount = Math.max(...entries.map(e => e.count), 1); // Avoid division by zero
@@ -16,11 +17,13 @@ export default function RecoveryFunnel() {
         <span className="text-[#00F0FF]">▼</span> Recovery Funnel
       </h3>
       
-      {entries.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-white/30 font-mono text-sm">
-          No active invoices. Generate a batch.
-        </div>
-      ) : (
+      <QueryBoundary
+        error={error}
+        loading={isLoading}
+        isEmpty={entries.length === 0}
+        emptyMessage="No active invoices. Generate a batch."
+        onRetry={() => mutate()}
+      >
         <div className="flex-1 space-y-4">
           {entries.map((entry) => {
             const config = STATUS_CONFIG[entry.status] || STATUS_CONFIG["ISSUED"];
@@ -41,7 +44,7 @@ export default function RecoveryFunnel() {
                     className="h-full rounded-full transition-all duration-1000 ease-out opacity-80"
                     style={{ 
                       width: `${percentage}%`,
-                      backgroundColor: config.color.replace('text-', '').replace('-400', '') // basic fallback color heuristic
+                      backgroundColor: config.hex
                     }}
                   />
                 </div>
@@ -49,7 +52,7 @@ export default function RecoveryFunnel() {
             );
           })}
         </div>
-      )}
+      </QueryBoundary>
     </div>
   );
 }

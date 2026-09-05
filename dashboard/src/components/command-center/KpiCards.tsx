@@ -1,9 +1,10 @@
 "use client";
 import { useApi } from "@/hooks/useApi";
 import { Metrics } from "@/lib/types";
+import QueryBoundary from "@/components/QueryBoundary";
 
 export default function KpiCards() {
-  const { data: metrics } = useApi<Metrics>("/api/metrics");
+  const { data: metrics, error, isLoading, mutate } = useApi<Metrics>("/api/metrics");
 
   // Fallback defaults while loading
   const m = metrics || {
@@ -13,6 +14,25 @@ export default function KpiCards() {
     totalInvoices: 0,
     recoveredInvoices: 0
   };
+
+  if (error || isLoading) {
+    return (
+      <QueryBoundary
+        error={error}
+        loading={isLoading}
+        onRetry={() => mutate()}
+        loadingFallback={
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="glass-panel p-5 h-[92px] animate-pulse" />
+            ))}
+          </div>
+        }
+      >
+        {null}
+      </QueryBoundary>
+    );
+  }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-5 gap-4">

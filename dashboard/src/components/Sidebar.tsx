@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useApi } from "@/hooks/useApi";
+import { useApi, ApiError } from "@/hooks/useApi";
 
 const navItems = [
   { href: "/", label: "Command Center", icon: "📊" },
@@ -20,8 +20,17 @@ export default function Sidebar() {
   const { data: health, error } = useApi<{status: string}>("/health");
   const isConnected = !!health && !error;
 
+  // Name the actual failure rather than calling every failure "offline".
+  const statusLabel = isConnected
+    ? "Backend Connected"
+    : error instanceof ApiError
+      ? `Backend error ${error.status}`
+      : error
+        ? "Backend unreachable"
+        : "Connecting…";
+
   // Fetch virtual date
-  const { data: simState } = useApi<{virtual_date: string}>("/api/simulation/state");
+  const { data: simState, error: simError } = useApi<{virtual_date: string}>("/api/simulation/state");
 
   return (
     <aside className="sidebar flex flex-col h-full bg-[#0B0F19] border-r border-white/5 w-64">
@@ -46,10 +55,14 @@ export default function Sidebar() {
         <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-white/25 mb-1">Virtual Date</p>
         <div className="flex items-center gap-2">
           <span className="text-xl">⏱️</span>
-          <span className="text-white/90 font-mono text-sm">
-            {simState?.virtual_date ? new Date(simState.virtual_date).toLocaleDateString(undefined, {
-              year: 'numeric', month: 'short', day: 'numeric'
-            }) : "Waiting for tick..."}
+          <span className={`font-mono text-sm ${simError ? "text-red-400" : "text-white/90"}`}>
+            {simError
+              ? `Unavailable (${simError instanceof ApiError ? simError.status : "no connection"})`
+              : simState?.virtual_date
+                ? new Date(simState.virtual_date).toLocaleDateString(undefined, {
+                    year: 'numeric', month: 'short', day: 'numeric'
+                  })
+                : "Waiting for tick..."}
           </span>
         </div>
       </div>
@@ -74,9 +87,15 @@ export default function Sidebar() {
       {/* Backend Status at Bottom */}
       <div className="px-5 py-4 border-t border-white/5">
         <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-amber-400 shadow-[0_0_8px_#fbbf24]'}`} />
-          <span className="text-xs font-mono text-white/50">
-            {isConnected ? 'Backend Connected' : 'Demo Mode (Offline)'}
+          <div className={`w-2 h-2 rounded-full ${
+            isConnected
+              ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]'
+              : error
+                ? 'bg-red-400 shadow-[0_0_8px_#f87171]'
+                : 'bg-amber-400 shadow-[0_0_8px_#fbbf24]'
+          }`} />
+          <span className={`text-xs font-mono ${error ? 'text-red-400' : 'text-white/50'}`}>
+            {statusLabel}
           </span>
         </div>
       </div>
