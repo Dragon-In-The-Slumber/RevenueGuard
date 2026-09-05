@@ -11,11 +11,15 @@ When keys are absent the mock path is used deliberately and is labelled `mode:
 The SDK is synchronous, so calls run in a thread to avoid blocking the event loop.
 """
 
+from src.logging_config import get_logger
 import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
 
 from src.config import settings
+
+
+logger = get_logger("revenueguard.razorpay")
 
 _client = None
 
@@ -32,7 +36,7 @@ def get_client():
         _client = razorpay.Client(auth=(settings.razorpay_key_id, settings.razorpay_key_secret))
         return _client
     except Exception as e:
-        print(f"Razorpay client unavailable ({type(e).__name__}: {e}); using mock links")
+        logger.info(f"Razorpay client unavailable ({type(e).__name__}: {e}); using mock links")
         return None
 
 
@@ -87,7 +91,7 @@ async def create_payment_link(invoice_id: int, amount: float, description: str,
         }
     except Exception as e:
         # Surface the failure, then degrade — a broken link must not stop a tick.
-        print(f"Razorpay payment_link.create failed ({type(e).__name__}: {e}); using mock")
+        logger.warning(f"Razorpay payment_link.create failed ({type(e).__name__}: {e}); using mock")
         result = _mock_link(invoice_id, net, discount_pct)
         result["error"] = f"{type(e).__name__}: {e}"
         return result
@@ -120,7 +124,7 @@ async def create_virtual_account(invoice_id: int, client_name: str, client_email
             "mode": "live",
         }
     except Exception as e:
-        print(f"Razorpay virtual_account.create failed ({type(e).__name__}: {e}); using mock")
+        logger.warning(f"Razorpay virtual_account.create failed ({type(e).__name__}: {e}); using mock")
         stamp = int(datetime.utcnow().timestamp())
         return {"id": f"va_mock_{invoice_id}_{stamp}", "mode": "mock", "error": str(e)}
 
@@ -142,5 +146,5 @@ def verify_webhook_signature(body: bytes, signature: str) -> bool:
         )
         return True
     except Exception as e:
-        print(f"Webhook signature rejected: {type(e).__name__}")
+        logger.debug(f"Webhook signature rejected: {type(e).__name__}")
         return False

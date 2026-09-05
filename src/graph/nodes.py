@@ -1,3 +1,6 @@
+from src.logging_config import get_logger
+import httpx
+from src.config import settings
 from src.graph.state import RecoveryState
 from src.ai.llm import draft_escalation_email, classify_client_intent
 from src.rag.vector_store import search_client_context
@@ -16,6 +19,9 @@ import random
 # --- Stopping-rule policy ---------------------------------------------------
 # Stopping rule 5: outbound contacts allowed before the invoice is written off
 # as UNRESPONSIVE and handed to a person.
+
+logger = get_logger("revenueguard.graph")
+
 MAX_CONTACT_ATTEMPTS = 5
 
 # Stopping rule 2: a promise is honoured until its date plus this grace period.
@@ -224,20 +230,18 @@ async def notify_human(state: RecoveryState) -> RecoveryState:
 
     delivered = "console"
     try:
-        from src.config import settings
         webhook = getattr(settings, "slack_webhook_url", None)
         if webhook:
-            import httpx
             async with httpx.AsyncClient(timeout=5.0) as client:
                 await client.post(webhook, json={"text": message})
             delivered = "slack"
         else:
-            print(message)
+            logger.debug(message)
     except Exception as e:
         # A failed notification must not lose the handoff: the audit row below is
         # the durable record, and the failure is named rather than hidden.
-        print(f"notify_human: Slack delivery failed ({e}); logged to console instead")
-        print(message)
+        logger.warning(f"notify_human: Slack delivery failed ({e}); logged to console instead")
+        logger.debug(message)
         delivered = f"console (slack failed: {type(e).__name__})"
 
     state["audit_entries"].append({

@@ -15,9 +15,18 @@ kind — is appended to `state["tool_calls"]` and to the audit trail. The extern
 effects that are genuinely external (payment links, email, Slack) do happen here.
 """
 
+from src.logging_config import get_logger
+import httpx
+
+from src.config import settings
+from src.integrations import razorpay_client
+from src.rag.vector_store import search_client_context as rag_search
 from datetime import datetime, timedelta
 from typing import Optional
 
+
+
+logger = get_logger("revenueguard.tools")
 
 def _record(state: dict, tool: str, args: dict, result: dict, reasoning: str) -> dict:
     """Append an audited tool call to the state and the audit trail."""
@@ -41,7 +50,6 @@ def _record(state: dict, tool: str, args: dict, result: dict, reasoning: str) ->
 async def create_payment_link(state: dict, amount: float, description: str,
                               discount_pct: Optional[float] = None) -> dict:
     """Create a Razorpay payment link through the official SDK (mock when unconfigured)."""
-    from src.integrations import razorpay_client
 
     link = await razorpay_client.create_payment_link(
         invoice_id=state["invoice_id"],
@@ -63,7 +71,6 @@ async def create_payment_link(state: dict, amount: float, description: str,
 
 async def create_virtual_account(state: dict) -> dict:
     """Smart Collect virtual account for NEFT/RTGS payers."""
-    from src.integrations import razorpay_client
 
     va = await razorpay_client.create_virtual_account(
         invoice_id=state["invoice_id"],
@@ -80,7 +87,7 @@ async def create_virtual_account(state: dict) -> dict:
 
 async def send_email(state: dict, to: str, subject: str, body: str, stage: str) -> dict:
     """Dispatch an escalation email (mock transport; the audit row is the record)."""
-    print(f"MOCK EMAIL SENT TO: {to}\nSUBJECT: {subject}\nBODY:\n{body[:400]}")
+    logger.info(f"MOCK EMAIL SENT TO: {to}\nSUBJECT: {subject}\nBODY:\n{body[:400]}")
     result = {"delivered": True, "transport": "mock", "stage": stage}
     return _record(
         state, "send_email",
@@ -92,7 +99,7 @@ async def send_email(state: dict, to: str, subject: str, body: str, stage: str) 
 
 async def send_sms(state: dict, to: str, body: str, channel: str) -> dict:
     """Dispatch over an alternative channel after SWITCH_CHANNEL."""
-    print(f"MOCK {channel} SENT TO: {to}\n{body[:200]}")
+    logger.info(f"MOCK {channel} SENT TO: {to}\n{body[:200]}")
     result = {"delivered": True, "transport": "mock", "channel": channel}
     return _record(
         state, "send_sms",
@@ -132,18 +139,16 @@ async def notify_slack(state: dict, channel: str, message: str) -> dict:
     """Notify a human channel. Falls back to console when no webhook is set."""
     delivered = "console"
     try:
-        from src.config import settings
         webhook = getattr(settings, "slack_webhook_url", None)
         if webhook:
-            import httpx
             async with httpx.AsyncClient(timeout=5.0) as client:
                 await client.post(webhook, json={"text": message})
             delivered = "slack"
         else:
-            print(f"SLACK NOTIFICATION TO {channel}: {message}")
+            logger.debug(f"SLACK NOTIFICATION TO {channel}: {message}")
     except Exception as e:
-        print(f"notify_slack: delivery failed ({e}); logged to console")
-        print(f"SLACK NOTIFICATION TO {channel}: {message}")
+        logger.warning(f"notify_slack: delivery failed ({e}); logged to console")
+        logger.debug(f"SLACK NOTIFICATION TO {channel}: {message}")
         delivered = f"console (slack failed: {type(e).__name__})"
 
     result = {"delivered_via": delivered, "channel": channel}
@@ -157,7 +162,6 @@ async def notify_slack(state: dict, channel: str, message: str) -> dict:
 
 async def search_client_context(state: dict, client_name: str, query: str) -> dict:
     """RAG retrieval, recorded as a tool call so retrieval is auditable too."""
-    from src.rag.vector_store import search_client_context as rag_search
     context = await rag_search(client_name, query)
     result = {"chars": len(context), "matched": bool(context)}
     _record(
