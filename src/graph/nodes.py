@@ -22,8 +22,15 @@ async def check_overdue(state: RecoveryState) -> RecoveryState:
     return state
 
 async def check_cooldown(state: RecoveryState) -> RecoveryState:
-    # Set this to true by default unless blocked
     state["should_send_email"] = True
+    
+    if state.get("last_email_date"):
+        last_dt = datetime.fromisoformat(state["last_email_date"])
+        # Use virtual_date if available, otherwise fallback to utcnow
+        current_dt = datetime.fromisoformat(state["virtual_date"]) if state.get("virtual_date") else datetime.utcnow()
+        if (current_dt - last_dt).days < 4:
+            state["should_send_email"] = False
+            
     return state
 
 async def log_blocked(state: RecoveryState) -> RecoveryState:
@@ -89,6 +96,7 @@ async def draft_email(state: RecoveryState) -> RecoveryState:
     stage = stage_map.get(current, "STAGE_1")
     
     if stage == "STAGE_4" or stage == "UNRESPONSIVE":
+        state["escalation_stage"] = stage
         state["new_status"] = "HUMAN_ESCALATED"
         state["audit_entries"].append({
             "event_type": "STATUS_CHANGED",

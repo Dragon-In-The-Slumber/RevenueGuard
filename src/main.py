@@ -12,7 +12,7 @@ from src.websocket import manager
 from datetime import datetime, timedelta
 from src.rag.seed_data import seed_database
 from pydantic import BaseModel
-from src.persistence.models import Invoice
+from src.persistence.models import Invoice, InvoiceStatus
 from sqlalchemy.future import select
 from src.graph.builder import compiled_graph
 

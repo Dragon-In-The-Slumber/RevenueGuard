@@ -11,6 +11,8 @@ class RecoveryState(TypedDict):
     current_status: str
     days_overdue: int
     escalation_stage: str            # STAGE_1, STAGE_2, STAGE_3, STAGE_4
+    last_email_date: Optional[str]
+    virtual_date: Optional[str]
 
     # Client reply (if any)
     client_reply: Optional[str]

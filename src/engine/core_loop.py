@@ -15,6 +15,8 @@ async def process_simulation_tick(db: AsyncSession, virtual_date: datetime):
     processed_count = 0
     
     for invoice in invoices:
+        last_email_dt = await get_last_email_date(db, invoice.id)
+
         # Initialize graph state
         initial_state = {
             "invoice_id": invoice.id,
@@ -25,6 +27,8 @@ async def process_simulation_tick(db: AsyncSession, virtual_date: datetime):
             "current_status": invoice.status.value if hasattr(invoice.status, "value") else invoice.status,
             "days_overdue": (virtual_date - invoice.due_date).days,
             "escalation_stage": invoice.escalation_stage or "STAGE_1",
+            "last_email_date": last_email_dt.isoformat() if last_email_dt else None,
+            "virtual_date": virtual_date.isoformat(),
             "client_reply": None,
             "classified_intent": None,
             "intent_confidence": None,
