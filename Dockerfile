@@ -15,8 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY ./src ./src
 COPY ./tests ./tests
 
-# Create a non-root user
-RUN adduser --disabled-password --gecos '' appuser
+# Create a non-root user and grant ownership of the /app directory
+RUN adduser --disabled-password --gecos '' appuser && chown -R appuser:appuser /app
 USER appuser
 
 # Default to API server
