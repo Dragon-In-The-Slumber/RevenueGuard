@@ -14,7 +14,13 @@ export interface Invoice {
   promised_date: string | null;
   escalation_stage: string;
   razorpay_payment_link_id: string | null;
+  razorpay_payment_link_url: string | null;
   razorpay_virtual_account_id: string | null;
+  contact_attempts?: number;
+  relationship_score?: number;
+  last_contact_date?: string | null;
+  next_contact_allowed_date?: string | null;
+  escalations_blocked?: number;
 }
 
 export interface AuditLogEntry {

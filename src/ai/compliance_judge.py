@@ -26,8 +26,10 @@ Evaluate against these mandatory rules:
 Return JSON: {"verdict": "PASS" or "FAIL", "reason": "...", "suggestions": "..."}
 """
 
-async def evaluate_email_compliance(email_body: str, escalation_stage: str, context: str = "") -> dict:
-    if not settings.anthropic_api_key or settings.anthropic_api_key == "your_anthropic_api_key_here":
+async def evaluate_email_compliance(email_body: str, escalation_stage: str, context: str = "",
+                                    client_name: str = None) -> dict:
+    from src.ai.llm import _llm_unavailable
+    if _llm_unavailable(client_name):
         import random
         if random.random() < 0.2:
             logger.warning("Anthropic API key missing, skipping compliance check (mock FAIL)")

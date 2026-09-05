@@ -6,12 +6,15 @@ import { STATUS_CONFIG } from "@/lib/constants";
 import StatusBadge from "./StatusBadge";
 import EscalationProgress from "./EscalationProgress";
 import QuickActions from "./QuickActions";
+import QueryBoundary from "@/components/QueryBoundary";
+import { useVirtualDate } from "@/hooks/useVirtualDate";
 import { useRouter } from "next/navigation";
 
 export default function InvoiceTable() {
-  const { data } = useApi<{ invoices: Invoice[] }>("/api/invoices");
+  const { data, error, isLoading, mutate } = useApi<{ invoices: Invoice[] }>("/api/invoices");
   const invoices = data?.invoices || [];
   const router = useRouter();
+  const { daysOverdue } = useVirtualDate();
 
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("ALL");
@@ -57,6 +60,20 @@ export default function InvoiceTable() {
 
       {/* Table */}
       <div className="flex-1 overflow-auto no-scrollbar relative">
+        <QueryBoundary
+          error={error}
+          loading={isLoading}
+          isEmpty={invoices.length === 0}
+          emptyMessage="No invoices found. Generate a batch from the Command Center."
+          onRetry={() => mutate()}
+          loadingFallback={
+            <div className="space-y-2 p-4">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-12 animate-pulse rounded bg-white/5" />
+              ))}
+            </div>
+          }
+        >
         <table className="w-full text-left text-sm text-white border-collapse">
           <thead className="sticky top-0 bg-[#0B0F19]/90 backdrop-blur-md z-20 shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
             <tr>
@@ -93,8 +110,9 @@ export default function InvoiceTable() {
                 <td className="px-6 py-4 font-mono">
                   {inv.due_date ? (
                     (() => {
-                      const days = Math.floor((new Date().getTime() - new Date(inv.due_date).getTime()) / (1000 * 3600 * 24));
-                      if (days <= 0) return <span className="text-white/30">-</span>;
+                      // Virtual clock: status transitions run on it, so overdue must too.
+                      const days = daysOverdue(inv.due_date);
+                      if (days === null || days <= 0) return <span className="text-white/30">-</span>;
                       return <span className={days > 30 ? "text-red-400" : "text-amber-400"}>{days}d</span>;
                     })()
                   ) : "-"}
@@ -112,13 +130,14 @@ export default function InvoiceTable() {
             ))}
             {filteredInvoices.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-6 py-12 text-center text-white/30 font-mono text-sm">
-                  No invoices found. Generate a batch from the Command Center.
+                <td colSpan={8} className="px-6 py-12 text-center text-white/30 font-mono text-sm">
+                  No invoices match the current filter.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        </QueryBoundary>
       </div>
     </div>
   );
