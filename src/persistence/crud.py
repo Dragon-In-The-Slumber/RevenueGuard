@@ -1,24 +1,40 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update
+from sqlalchemy import update, func
 from src.persistence.models import Invoice, AuditLog, InvoiceStatus
 from faker import Faker
 import random
 from datetime import datetime, timedelta
-from src.rag.seed_data import seed_database
+from src.domain.clients import HERO_CLIENTS
 
 fake = Faker('en_IN') # Using Indian locale for realistic B2B company names
 
 async def generate_fake_invoices(db: AsyncSession, count: int = 100):
     invoices = []
-    
-    # Seed ChromaDB profiles
-    seed_database()
-    
+
+    # ChromaDB profiles are seeded on startup in main.py lifespan,
+    # so we don't need to do it here which causes a 36-second API blocking timeout!
+
+    # Hero clients come from src/domain/clients.py — the same roster that seeds
+    # ChromaDB and serves /api/clients, so the three cannot disagree.
+    num_heroes = min(count, len(HERO_CLIENTS))
+    for i in range(num_heroes):
+        hero = HERO_CLIENTS[i]
+        due_date = datetime.utcnow() - timedelta(days=hero.seed_days_overdue)
+        invoice = Invoice(
+            amount=hero.seed_amount,
+            client_name=hero.name,
+            client_email=hero.email,
+            due_date=due_date,
+            status=InvoiceStatus.ISSUED
+        )
+        invoices.append(invoice)
+        db.add(invoice)
+
     # Probabilities for client profiles
     profiles = ["startup", "SME", "enterprise"]
     
-    for _ in range(count):
+    for _ in range(count - num_heroes):
         profile = random.choices(profiles, weights=[0.3, 0.5, 0.2])[0]
         
         # Randomize amount (₹10,000 to ₹50,00,000)
@@ -55,12 +71,22 @@ async def generate_fake_invoices(db: AsyncSession, count: int = 100):
     return count
 
 async def get_actionable_invoices(db: AsyncSession):
-    # Fetch invoices that are ISSUED (and overdue), OVERDUE, NOTIFIED_1, NOTIFIED_2, NOTIFIED_3, or PAUSED_PTP (if grace period passed)
-    # For now, let's fetch anything that is NOT in a terminal state
-    terminal_states = [InvoiceStatus.RECOVERED, InvoiceStatus.HUMAN_ESCALATED, InvoiceStatus.LEGAL_HOLD, InvoiceStatus.UNRESPONSIVE, InvoiceStatus.DISPUTE]
-    
+    """
+    Invoices the agent may still act on.
 
-    
+    PAUSED_PTP stays actionable on purpose: the graph's stop-condition gate needs
+    to see it each tick to decide whether the promise window is still open, and to
+    resume once it lapses. The terminal set is where the stopping rules land —
+    a case there is finished as far as automation is concerned.
+    """
+    terminal_states = [
+        InvoiceStatus.RECOVERED,         # Stop 1: paid
+        InvoiceStatus.DISPUTE,           # Stop 3: halted, with a human notified
+        InvoiceStatus.LEGAL_HOLD,        # Stop 4: opt-out / legal threat
+        InvoiceStatus.UNRESPONSIVE,      # Stop 5: attempt cap reached
+        InvoiceStatus.HUMAN_ESCALATED,
+    ]
+
     result = await db.execute(
         select(Invoice).where(Invoice.status.not_in(terminal_states))
     )
@@ -72,8 +98,11 @@ async def get_invoices_by_client_name(db: AsyncSession, client_name: str):
     )
     return result.scalars().all()
 
-async def log_audit_event(db: AsyncSession, invoice_id: int, event_type: str, reasoning: str, action: str, timestamp: datetime = None, rule_applied: str = None, content_snapshot: str = None, compliance_verdict: str = None):
-    log = AuditLog(
+def build_audit_log(invoice_id: int, event_type: str, reasoning: str, action: str,
+                    timestamp: datetime = None, rule_applied: str = None,
+                    content_snapshot: str = None, compliance_verdict: str = None) -> AuditLog:
+    """Construct an AuditLog without touching the session — for batched writes."""
+    return AuditLog(
         invoice_id=invoice_id,
         event_type=event_type,
         agent_reasoning=reasoning,
@@ -83,10 +112,75 @@ async def log_audit_event(db: AsyncSession, invoice_id: int, event_type: str, re
         compliance_verdict=compliance_verdict,
         timestamp=timestamp or datetime.utcnow()
     )
+
+
+async def log_audit_event(db: AsyncSession, invoice_id: int, event_type: str, reasoning: str, action: str, timestamp: datetime = None, rule_applied: str = None, content_snapshot: str = None, compliance_verdict: str = None):
+    """
+    Single audit write, committed immediately.
+
+    Kept for the webhook and reply endpoints, which write one row per request. The
+    tick loop uses build_audit_log + a single commit instead: committing per row
+    inside a per-invoice loop produced hundreds of round trips per tick and left
+    the database in a partial state if a tick failed halfway.
+    """
+    log = build_audit_log(invoice_id, event_type, reasoning, action, timestamp,
+                          rule_applied, content_snapshot, compliance_verdict)
     db.add(log)
     await db.commit()
     await db.refresh(log)
     return log
+
+
+async def get_tick_context(db: AsyncSession, invoice_ids: list[int]) -> dict:
+    """
+    One query per fact for the whole batch, instead of three per invoice.
+
+    Returns {invoice_id: {"last_email": dt|None, "replies": int, "history": [...]}}.
+    """
+    ctx = {i: {"last_email": None, "replies": 0, "history": []} for i in invoice_ids}
+    if not invoice_ids:
+        return ctx
+
+    # Latest EMAIL_SENT per invoice.
+    last_emails = await db.execute(
+        select(AuditLog.invoice_id, func.max(AuditLog.timestamp))
+        .where(AuditLog.invoice_id.in_(invoice_ids))
+        .where(AuditLog.event_type == "EMAIL_SENT")
+        .group_by(AuditLog.invoice_id)
+    )
+    for inv_id, ts in last_emails:
+        ctx[inv_id]["last_email"] = ts
+
+    # Reply counts per invoice.
+    reply_counts = await db.execute(
+        select(AuditLog.invoice_id, func.count(AuditLog.id))
+        .where(AuditLog.invoice_id.in_(invoice_ids))
+        .where(AuditLog.event_type == "INTENT_CLASSIFIED")
+        .group_by(AuditLog.invoice_id)
+    )
+    for inv_id, count in reply_counts:
+        ctx[inv_id]["replies"] = count
+
+    # Interaction history for the whole batch in one pass.
+    history_rows = await db.execute(
+        select(AuditLog)
+        .where(AuditLog.invoice_id.in_(invoice_ids))
+        .where(AuditLog.event_type.in_([
+            "EMAIL_SENT", "AGENT_DECISION", "AGENT_WAIT", "ACTION_VETOED",
+            "INTENT_CLASSIFIED", "PAYMENT_RECEIVED", "PTP_HONOURED", "CHANNEL_SWITCHED",
+        ]))
+        .order_by(AuditLog.timestamp.asc(), AuditLog.id.asc())
+    )
+    for log in history_rows.scalars().all():
+        entries = ctx[log.invoice_id]["history"]
+        if len(entries) < 20:
+            entries.append({
+                "day": log.timestamp.date().isoformat() if log.timestamp else None,
+                "event": log.event_type,
+                "action": log.action_taken,
+                "outcome": log.agent_reasoning,
+            })
+    return ctx
 
 async def get_last_email_date(db: AsyncSession, invoice_id: int):
     result = await db.execute(
@@ -97,6 +191,51 @@ async def get_last_email_date(db: AsyncSession, invoice_id: int):
         .limit(1)
     )
     return result.scalar_one_or_none()
+
+async def count_client_replies(db: AsyncSession, invoice_id: int) -> int:
+    """
+    How many times this client has actually engaged.
+
+    Distinguishes a ghost (Stop 5 -> UNRESPONSIVE) from a client who replied but
+    whose case still needs a person (-> HUMAN_ESCALATED). Without this the two are
+    indistinguishable and UNRESPONSIVE is unreachable.
+    """
+    result = await db.execute(
+        select(func.count(AuditLog.id))
+        .where(AuditLog.invoice_id == invoice_id)
+        .where(AuditLog.event_type == "INTENT_CLASSIFIED")
+    )
+    return result.scalar() or 0
+
+
+async def get_interaction_history(db: AsyncSession, invoice_id: int, limit: int = 20):
+    """
+    Prior actions and outcomes for this invoice, oldest first.
+
+    Feeds `decide_action`: an agent choosing an intervention needs to know what has
+    already been tried and what it produced.
+    """
+    result = await db.execute(
+        select(AuditLog)
+        .where(AuditLog.invoice_id == invoice_id)
+        .where(AuditLog.event_type.in_([
+            "EMAIL_SENT", "AGENT_DECISION", "AGENT_WAIT", "ACTION_VETOED",
+            "INTENT_CLASSIFIED", "PAYMENT_RECEIVED", "ESCALATION_BLOCKED",
+            "PTP_HONOURED", "CHANNEL_SWITCHED",
+        ]))
+        .order_by(AuditLog.timestamp.asc(), AuditLog.id.asc())
+        .limit(limit)
+    )
+    return [
+        {
+            "day": log.timestamp.date().isoformat() if log.timestamp else None,
+            "event": log.event_type,
+            "action": log.action_taken,
+            "outcome": log.agent_reasoning,
+        }
+        for log in result.scalars().all()
+    ]
+
 
 async def get_last_audit_event_type(db: AsyncSession, invoice_id: int):
     result = await db.execute(
