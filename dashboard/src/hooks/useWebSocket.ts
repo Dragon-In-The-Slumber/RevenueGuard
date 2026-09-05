@@ -2,7 +2,8 @@
 import { useEffect, useCallback, useState } from "react";
 import { mutate } from "swr";
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws";
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || apiUrl.replace(/^http/, 'ws') + "/ws";
 
 export function useWebSocket() {
   const [wsInstance, setWsInstance] = useState<WebSocket | null>(null);
