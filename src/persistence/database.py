@@ -19,15 +19,22 @@ query_params.pop("channel_binding", None)
 new_query = urlparse.urlencode(query_params, doseq=True)
 db_url = parsed._replace(query=new_query).geturl()
 
-engine = create_async_engine(db_url, echo=True)
+engine = create_async_engine(db_url, echo=False)
 
 async_session = async_sessionmaker(
     engine, class_=AsyncSession, expire_on_commit=False
 )
 
 async def init_db():
+    """
+    Safety net for local runs started without migrations.
+
+    Alembic owns the schema (the container entrypoint runs `alembic upgrade head`).
+    create_all only ever adds *missing tables* and never missing columns, which is
+    exactly why a stale volume used to 500 every endpoint — so this must not be
+    relied on after a model change. Run a migration for those.
+    """
     async with engine.begin() as conn:
-        # Create tables if they don't exist
         await conn.run_sync(Base.metadata.create_all)
 
 async def get_db():

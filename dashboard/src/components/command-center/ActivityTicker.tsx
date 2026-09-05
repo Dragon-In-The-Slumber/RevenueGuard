@@ -2,19 +2,16 @@
 import { useApi } from "@/hooks/useApi";
 import { AuditLogEntry } from "@/lib/types";
 import { EVENT_TYPE_CONFIG } from "@/lib/constants";
+import QueryBoundary from "@/components/QueryBoundary";
+import { useVirtualDate } from "@/hooks/useVirtualDate";
 import Link from "next/link";
 
 export default function ActivityTicker() {
-  const { data } = useApi<{ logs: AuditLogEntry[] }>("/api/audit-logs");
+  const { data, error, isLoading, mutate } = useApi<{ logs: AuditLogEntry[] }>("/api/audit-logs");
   const logs = data?.logs || [];
 
-  const timeAgo = (dateStr: string) => {
-    const diff = Math.floor((new Date().getTime() - new Date(dateStr).getTime()) / 1000);
-    if (diff < 60) return `${diff}s ago`;
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    return `${Math.floor(diff / 86400)}d ago`;
-  };
+  // Audit rows are virtual-dated. Against the real clock these render negative.
+  const { timeAgo } = useVirtualDate();
 
   return (
     <div className="glass-panel p-5 h-full flex flex-col">
@@ -23,10 +20,14 @@ export default function ActivityTicker() {
       </h3>
       
       <div className="flex-1 max-h-[400px] overflow-y-auto no-scrollbar space-y-3 pr-2">
-        {logs.length === 0 ? (
-          <div className="text-center text-white/30 font-mono text-sm mt-10">No recent activity.</div>
-        ) : (
-          logs.map((log) => {
+        <QueryBoundary
+          error={error}
+          loading={isLoading}
+          isEmpty={logs.length === 0}
+          emptyMessage="No recent activity."
+          onRetry={() => mutate()}
+        >
+          {logs.map((log) => {
             const config = EVENT_TYPE_CONFIG[log.event_type] || { color: "text-gray-400", icon: "•" };
             return (
               <Link key={log.id} href={`/invoices/${log.invoice_id}`} className="block group">
@@ -48,8 +49,8 @@ export default function ActivityTicker() {
                 </div>
               </Link>
             );
-          })
-        )}
+          })}
+        </QueryBoundary>
       </div>
     </div>
   );

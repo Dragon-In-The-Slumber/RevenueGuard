@@ -1,27 +1,47 @@
 "use client";
 import { useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/hooks/useApi";
+
+interface RosterEntry { name: string }
 
 export default function RagSearchBar() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [matchedClient, setMatchedClient] = useState<string | null>(null);
+
+  // The roster comes from the backend so client names are never hardcoded here.
+  const { data: roster } = useApi<{ clients: RosterEntry[] }>("/api/clients/roster");
+  const names = roster?.clients.map((c) => c.name) ?? [];
 
   const handleSearch = async (searchQuery: string) => {
     if (!searchQuery.trim()) return;
+
+    // Match the query against the real roster. Previously an unmatched name fell
+    // through to Acme Corp, presenting Acme's profile as an answer about someone else.
+    const lower = searchQuery.toLowerCase();
+    const clientName = names.find((n) =>
+      n.toLowerCase().split(/\s+/).some((word) => word.length > 2 && lower.includes(word))
+    );
+
+    if (!clientName) {
+      setMatchedClient(null);
+      setResult(
+        `No client in the roster matches that query.\n\nKnown clients: ${names.join(", ") || "(roster unavailable)"}`
+      );
+      return;
+    }
+
     try {
       setLoading(true);
-      // For demo purposes, we map the query to one of the hero clients to trigger the RAG endpoint
-      let clientName = "Acme Corp";
-      if (searchQuery.toLowerCase().includes("globex")) clientName = "Globex Solutions";
-      if (searchQuery.toLowerCase().includes("initech")) clientName = "Initech";
-      if (searchQuery.toLowerCase().includes("soylent")) clientName = "Soylent Corp";
-      
-      const res: any = await apiFetch(`/api/clients/${encodeURIComponent(clientName)}/context`);
+      setMatchedClient(clientName);
+      const res = await apiFetch<{ context: string }>(
+        `/api/clients/${encodeURIComponent(clientName)}/context`
+      );
       setResult(res.context);
     } catch (e) {
-      console.error(e);
-      setResult("Failed to retrieve context from ChromaDB.");
+      setResult(e instanceof Error ? `Failed to retrieve context: ${e.message}` : "Failed to retrieve context from ChromaDB.");
     } finally {
       setLoading(false);
     }
@@ -52,7 +72,7 @@ export default function RagSearchBar() {
       </div>
       
       <div className="flex gap-2 mb-6 overflow-x-auto no-scrollbar">
-        {["What are Globex's payment terms?", "Has Initech disputed before?", "What is Acme Corp's risk level?"].map((q) => (
+        {names.slice(0, 3).map((n) => `What is ${n}'s payment history?`).map((q) => (
           <button 
             key={q}
             onClick={() => { setQuery(q); handleSearch(q); }}
@@ -67,6 +87,7 @@ export default function RagSearchBar() {
         <div className="bg-black/40 border border-white/10 rounded-lg p-4">
           <p className="text-[10px] uppercase font-mono tracking-wider text-purple-400 mb-2 flex items-center gap-2">
             <span>⚡</span> ChromaDB Raw Context
+            {matchedClient && <span className="text-white/40 normal-case">· {matchedClient}</span>}
           </p>
           <pre className="text-xs font-mono text-white/70 whitespace-pre-wrap leading-relaxed">
             {result}

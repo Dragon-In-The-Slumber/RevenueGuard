@@ -2,10 +2,11 @@
 import { useApi } from "@/hooks/useApi";
 import { AuditLogEntry } from "@/lib/types";
 import ComplianceDiff from "@/components/invoice-detail/ComplianceDiff";
+import QueryBoundary from "@/components/QueryBoundary";
 import Link from "next/link";
 
 export default function RejectedDraftsGallery() {
-  const { data } = useApi<{ rejected: AuditLogEntry[] }>("/api/compliance/rejected");
+  const { data, error, isLoading, mutate } = useApi<{ rejected: AuditLogEntry[] }>("/api/compliance/rejected");
   const rejected = data?.rejected || [];
 
   return (
@@ -14,11 +15,13 @@ export default function RejectedDraftsGallery() {
         <span className="text-red-400">🛡️</span> Rejected Drafts Gallery
       </h3>
 
-      {rejected.length === 0 ? (
-        <div className="py-12 text-center text-white/30 font-mono text-sm border border-dashed border-white/10 rounded-lg">
-          No compliance violations found. AI is operating perfectly.
-        </div>
-      ) : (
+      <QueryBoundary
+        error={error}
+        loading={isLoading}
+        isEmpty={rejected.length === 0}
+        emptyMessage="No compliance violations recorded yet."
+        onRetry={() => mutate()}
+      >
         <div className="space-y-6 max-h-[600px] overflow-y-auto no-scrollbar pr-2">
           {rejected.map((log) => (
             <div key={log.id} className="bg-white/[0.02] border border-white/5 p-5 rounded-xl">
@@ -42,7 +45,7 @@ export default function RejectedDraftsGallery() {
             </div>
           ))}
         </div>
-      )}
+      </QueryBoundary>
     </div>
   );
 }

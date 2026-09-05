@@ -1,10 +1,24 @@
 "use client";
 import { useApi } from "@/hooks/useApi";
+import QueryBoundary from "@/components/QueryBoundary";
 
 export default function ComplianceScore() {
-  const { data } = useApi<{ total_checked: number, passed: number, failed: number, rate: number }>("/api/compliance/stats");
-  
-  if (!data) return <div className="glass-panel p-6 h-48 animate-pulse"></div>;
+  const { data, error, isLoading, mutate } = useApi<{ total_checked: number, passed: number, failed: number, rate: number }>("/api/compliance/stats");
+
+  if (error || isLoading || !data) {
+    return (
+      <div className="glass-panel p-6">
+        <QueryBoundary
+          error={error}
+          loading={isLoading || !data}
+          onRetry={() => mutate()}
+          loadingFallback={<div className="h-48 animate-pulse rounded bg-white/5" />}
+        >
+          {null}
+        </QueryBoundary>
+      </div>
+    );
+  }
 
   return (
     <div className="glass-panel p-8 flex flex-col items-center justify-center relative overflow-hidden group">

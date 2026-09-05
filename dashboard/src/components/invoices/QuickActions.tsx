@@ -1,22 +1,26 @@
 "use client";
 import { useState } from "react";
-import { apiPost } from "@/lib/api";
+import { fireWebhook, sendClientReply } from "@/lib/api";
+import { useToast } from "@/components/ToastProvider";
 import Link from "next/link";
 
 export default function QuickActions({ invoiceId }: { invoiceId: number }) {
   const [loading, setLoading] = useState(false);
+  const { addToast } = useToast();
 
   const handleSimulateReply = async () => {
     const msg = prompt("Simulate client email reply:");
     if (!msg) return;
-    
+
     try {
       setLoading(true);
-      await apiPost(`/api/invoices/${invoiceId}/reply`, { message: msg });
-      alert("Reply sent! Check audit logs or advance timeline.");
+      const res = await sendClientReply(invoiceId, msg);
+      addToast(
+        `Classified ${res.intent ?? "UNKNOWN"} — ${res.old_status} → ${res.new_status}`,
+        res.old_status === res.new_status ? "info" : "success"
+      );
     } catch (e) {
-      console.error(e);
-      alert("Failed to send reply");
+      addToast(e instanceof Error ? e.message : "Failed to send reply", "error");
     } finally {
       setLoading(false);
     }
@@ -25,14 +29,10 @@ export default function QuickActions({ invoiceId }: { invoiceId: number }) {
   const handleSimulatePay = async () => {
     try {
       setLoading(true);
-      await apiPost(`/api/webhooks/razorpay`, { 
-        event: "invoice.paid", 
-        payload: { invoice_id: String(invoiceId) } 
-      });
-      alert("Payment webhook fired!");
+      const res = await fireWebhook("invoice.paid", invoiceId);
+      addToast(`Invoice #${res.invoice_id}: ${res.old_status} → ${res.new_status}`, "success");
     } catch (e) {
-      console.error(e);
-      alert("Failed to fire webhook");
+      addToast(e instanceof Error ? e.message : "Failed to fire webhook", "error");
     } finally {
       setLoading(false);
     }

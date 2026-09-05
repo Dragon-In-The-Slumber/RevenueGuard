@@ -1,5 +1,6 @@
 "use client";
 import { useApi } from "@/hooks/useApi";
+import QueryBoundary from "@/components/QueryBoundary";
 
 interface RagContextResponse {
   context: string;
@@ -13,14 +14,27 @@ interface RagContextResponse {
 }
 
 export default function RagContextPanel({ clientName }: { clientName: string }) {
-  const { data } = useApi<RagContextResponse>(`/api/clients/${encodeURIComponent(clientName)}/context`);
+  const { data, error, isLoading, mutate } = useApi<RagContextResponse>(
+    `/api/clients/${encodeURIComponent(clientName)}/context`
+  );
 
-  if (!data) {
+  if (error || isLoading || !data) {
     return (
-      <div className="glass-panel p-5 animate-pulse">
-        <div className="h-4 bg-white/10 rounded w-1/2 mb-4"></div>
-        <div className="h-2 bg-white/10 rounded w-full mb-2"></div>
-        <div className="h-2 bg-white/10 rounded w-3/4"></div>
+      <div className="glass-panel p-5">
+        <QueryBoundary
+          error={error}
+          loading={isLoading || !data}
+          onRetry={() => mutate()}
+          loadingFallback={
+            <div className="animate-pulse">
+              <div className="h-4 bg-white/10 rounded w-1/2 mb-4"></div>
+              <div className="h-2 bg-white/10 rounded w-full mb-2"></div>
+              <div className="h-2 bg-white/10 rounded w-3/4"></div>
+            </div>
+          }
+        >
+          {null}
+        </QueryBoundary>
       </div>
     );
   }

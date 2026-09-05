@@ -4,11 +4,25 @@ import { Invoice } from "@/lib/types";
 import StatusBadge from "@/components/invoices/StatusBadge";
 import Link from "next/link";
 import EscalationProgress from "@/components/invoices/EscalationProgress";
+import QueryBoundary from "@/components/QueryBoundary";
 
 export default function ClientInvoiceList({ clientName }: { clientName: string }) {
-  const { data } = useApi<{ invoices: Invoice[] }>("/api/invoices");
-  
-  if (!data) return <div className="glass-panel p-6 animate-pulse h-64"></div>;
+  const { data, error, isLoading, mutate } = useApi<{ invoices: Invoice[] }>("/api/invoices");
+
+  if (error || isLoading || !data) {
+    return (
+      <div className="glass-panel p-6">
+        <QueryBoundary
+          error={error}
+          loading={isLoading || !data}
+          onRetry={() => mutate()}
+          loadingFallback={<div className="h-64 animate-pulse rounded bg-white/5" />}
+        >
+          {null}
+        </QueryBoundary>
+      </div>
+    );
+  }
 
   const clientInvoices = data.invoices.filter(inv => inv.client_name === clientName);
 

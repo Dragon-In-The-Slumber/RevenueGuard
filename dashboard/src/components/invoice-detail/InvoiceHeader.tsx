@@ -45,7 +45,18 @@ export default function InvoiceHeader({ invoice }: { invoice: Invoice }) {
         <div>
           <p className="text-[10px] uppercase font-mono tracking-wider text-white/30 mb-1">Payment Options</p>
           {invoice.razorpay_payment_link_id ? (
-            <a href={`https://rzp.io/l/${invoice.razorpay_payment_link_id}`} target="_blank" className="text-xs text-[#00F0FF] hover:underline flex items-center gap-1">
+            // The column stores a full URL today; tolerate a bare id too, so the
+            // link is never rendered as https://rzp.io/l/https://rzp.io/l/...
+            <a
+              href={
+                /^https?:\/\//.test(invoice.razorpay_payment_link_id)
+                  ? invoice.razorpay_payment_link_id
+                  : `https://rzp.io/l/${invoice.razorpay_payment_link_id}`
+              }
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-[#00F0FF] hover:underline flex items-center gap-1"
+            >
               Payment Link ↗
             </a>
           ) : <span className="text-xs text-white/30">No Link</span>}
