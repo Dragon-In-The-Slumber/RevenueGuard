@@ -67,7 +67,10 @@ workflow.add_conditional_edges(
     }
 )
 
-workflow.add_edge("log_blocked", END)
+# An idle day still gives the client a chance to pay unprompted. Both the
+# agent's deliberate WAIT and the ladder's cooldown block route here, so
+# neither policy is scored more generously for doing nothing.
+workflow.add_edge("log_blocked", "simulate_client")
 
 workflow.add_edge("retrieve_client_context", "classify_reply")
 
@@ -114,7 +117,7 @@ workflow.add_conditional_edges(
 # A short-form message is still judged before it goes out.
 workflow.add_edge("draft_sms", "evaluate_compliance")
 
-workflow.add_edge("act_wait", END)
+workflow.add_edge("act_wait", "simulate_client")
 workflow.add_edge("act_escalate", "notify_human")
 workflow.add_edge("act_close", "notify_human")
 

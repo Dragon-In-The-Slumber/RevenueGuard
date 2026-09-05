@@ -23,10 +23,13 @@ from src.persistence.models import Invoice, InvoiceStatus, AuditLog, WebhookEven
 from sqlalchemy.future import select
 from sqlalchemy import delete
 from src.graph.builder import reply_graph
+from src.simulation.runner import run_simulation, compare
 
 # Global state for simulation virtual date
 simulation_state = {
-    "virtual_date": datetime.utcnow()
+    "virtual_date": datetime.utcnow(),
+    # Surfaced in the UI so a reproducible run can be repeated exactly.
+    "seed": 42,
 }
 
 @asynccontextmanager
@@ -138,8 +141,11 @@ async def advance_simulation_tick(days: int = 1, db: AsyncSession = Depends(get_
 
 @app.get("/api/simulation/state")
 async def get_simulation_state():
-    """Returns the current virtual date for the UI."""
-    return {"virtual_date": simulation_state["virtual_date"].isoformat()}
+    """Returns the current virtual date and seed for the UI."""
+    return {
+        "virtual_date": simulation_state["virtual_date"].isoformat(),
+        "seed": simulation_state.get("seed", 42),
+    }
 
 @app.post("/api/simulation/reset")
 async def reset_simulation(db: AsyncSession = Depends(get_db),
@@ -152,6 +158,165 @@ async def reset_simulation(db: AsyncSession = Depends(get_db),
     simulation_state["virtual_date"] = datetime.utcnow()
     await manager.broadcast({"event": "state_updated"})
     return {"status": "success", "message": "Database reset."}
+
+@app.post("/api/simulation/run")
+async def run_reproducible_simulation(
+    policy: str = "agent",
+    seed: int = 42,
+    count: int = 100,
+    days: int = 30,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_demo_token),
+):
+    """
+    Run one full simulation from a blank slate, reproducibly.
+
+    Same seed and count produce the same portfolio and the same environment dice,
+    so `policy=agent` and `policy=ladder` are a controlled comparison rather than
+    two unrelated runs. Destroys existing data — it is a benchmark, not a tick.
+    """
+    if policy not in ("agent", "ladder"):
+        raise HTTPException(status_code=400, detail="policy must be 'agent' or 'ladder'")
+
+    metrics = await run_simulation(db, policy=policy, seed=seed, count=count, days=days)
+    simulation_state["virtual_date"] = datetime(2026, 1, 1) + timedelta(days=days)
+    simulation_state["seed"] = seed
+    await manager.broadcast({"event": "state_updated"})
+    return metrics
+
+
+@app.post("/api/simulation/ab")
+async def run_ab_comparison(
+    seed: int = 42,
+    count: int = 100,
+    days: int = 30,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_demo_token),
+):
+    """
+    The headline result: the agent against a fixed-schedule chaser.
+
+    Runs both policies over an identical portfolio with identical environment
+    dice, and returns both sets of metrics plus the deltas. The database is left
+    holding the agent run so the UI has something to show afterwards.
+    """
+    ladder = await run_simulation(db, policy="ladder", seed=seed, count=count, days=days)
+    agent = await run_simulation(db, policy="agent", seed=seed, count=count, days=days)
+
+    simulation_state["virtual_date"] = datetime(2026, 1, 1) + timedelta(days=days)
+    simulation_state["seed"] = seed
+    await manager.broadcast({"event": "state_updated"})
+
+    return {"seed": seed, "count": count, "days": days,
+            "agent": agent, "ladder": ladder, "comparison": compare(agent, ladder)}
+
+
+@app.get("/api/approvals")
+async def get_approval_queue(db: AsyncSession = Depends(get_db)):
+    """
+    Cases the agent handed to a person, with the agent's case attached.
+
+    The human-in-the-loop pillar had no UI at all: STAGE_4 gating and guard vetoes
+    routed work to humans that nobody could see, let alone act on.
+    """
+    result = await db.execute(
+        select(Invoice)
+        .where(Invoice.status.in_([InvoiceStatus.HUMAN_ESCALATED, InvoiceStatus.DISPUTE]))
+        .order_by(Invoice.amount.desc())
+    )
+    invoices = result.scalars().all()
+    if not invoices:
+        return {"approvals": []}
+
+    ids = [i.id for i in invoices]
+    logs = await db.execute(
+        select(AuditLog)
+        .where(AuditLog.invoice_id.in_(ids))
+        .where(AuditLog.event_type.in_([
+            "AGENT_DECISION", "ACTION_VETOED", "HUMAN_ESCALATED", "STATUS_CHANGED",
+            "COMPLIANCE_FAILED", "INTENT_CLASSIFIED",
+        ]))
+        .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
+    )
+    by_invoice: dict[int, list] = {}
+    for log in logs.scalars().all():
+        by_invoice.setdefault(log.invoice_id, []).append(log)
+
+    approvals = []
+    for inv in invoices:
+        entries = by_invoice.get(inv.id, [])
+        decision = next((e for e in entries if e.event_type == "AGENT_DECISION"), None)
+        veto = next((e for e in entries if e.event_type == "ACTION_VETOED"), None)
+        handoff = next((e for e in entries if e.event_type == "HUMAN_ESCALATED"), None)
+
+        approvals.append({
+            "invoice_id": inv.id,
+            "client_name": inv.client_name,
+            "amount": float(inv.amount),
+            "status": inv.status.value,
+            "escalation_stage": inv.escalation_stage,
+            "contact_attempts": inv.contact_attempts or 0,
+            "relationship_score": inv.relationship_score if inv.relationship_score is not None else 1.0,
+            "reason": (handoff.rule_applied if handoff else None) or "Requires human review",
+            "detail": handoff.agent_reasoning if handoff else None,
+            # The agent's case, so a reviewer decides with the same information.
+            "agent_proposed": decision.action_taken if decision else None,
+            "agent_reasoning": decision.agent_reasoning if decision else None,
+            "guard_veto": veto.rule_applied if veto else None,
+            "guard_detail": veto.agent_reasoning if veto else None,
+        })
+    return {"approvals": approvals}
+
+
+class ApprovalDecision(BaseModel):
+    note: str = ""
+
+
+@app.post("/api/approvals/{id}/approve")
+async def approve_case(id: int, body: ApprovalDecision, db: AsyncSession = Depends(get_db)):
+    """A human authorises the agent to continue; the invoice re-enters the loop."""
+    result = await db.execute(select(Invoice).where(Invoice.id == id))
+    invoice = result.scalar_one_or_none()
+    if not invoice:
+        raise HTTPException(status_code=404, detail=f"Invoice {id} not found")
+
+    old_status = invoice.status.value
+    # Returning it to NOTIFIED_2 puts it back in the actionable set with its
+    # escalation history intact.
+    invoice.status = InvoiceStatus.NOTIFIED_2
+    await log_audit_event(
+        db, invoice.id, "HUMAN_APPROVED",
+        body.note or "Human approved continued collection.",
+        f"Approved by human; released from {old_status} back into the workflow",
+        simulation_state["virtual_date"], rule_applied="Human-in-the-loop approval",
+    )
+    await db.commit()
+    await manager.broadcast({"event": "state_updated"})
+    return {"status": "approved", "invoice_id": id, "old_status": old_status,
+            "new_status": invoice.status.value}
+
+
+@app.post("/api/approvals/{id}/reject")
+async def reject_case(id: int, body: ApprovalDecision, db: AsyncSession = Depends(get_db)):
+    """A human stops collection permanently."""
+    result = await db.execute(select(Invoice).where(Invoice.id == id))
+    invoice = result.scalar_one_or_none()
+    if not invoice:
+        raise HTTPException(status_code=404, detail=f"Invoice {id} not found")
+
+    old_status = invoice.status.value
+    invoice.status = InvoiceStatus.LEGAL_HOLD
+    await log_audit_event(
+        db, invoice.id, "HUMAN_REJECTED",
+        body.note or "Human halted collection on this invoice.",
+        f"Rejected by human; moved from {old_status} to LEGAL_HOLD",
+        simulation_state["virtual_date"], rule_applied="Human-in-the-loop rejection",
+    )
+    await db.commit()
+    await manager.broadcast({"event": "state_updated"})
+    return {"status": "rejected", "invoice_id": id, "old_status": old_status,
+            "new_status": invoice.status.value}
+
 
 class ClientReplyRequest(BaseModel):
     message: str

@@ -9,8 +9,22 @@ from src.domain.clients import HERO_CLIENTS
 
 fake = Faker('en_IN') # Using Indian locale for realistic B2B company names
 
-async def generate_fake_invoices(db: AsyncSession, count: int = 100):
+async def generate_fake_invoices(db: AsyncSession, count: int = 100,
+                                 seed: int | None = None,
+                                 reference_date: datetime | None = None):
+    """
+    Generate a batch of overdue invoices.
+
+    `seed` and `reference_date` make the portfolio reproducible, which is what
+    lets the A/B compare two policies over an identical set of invoices rather
+    than two different random ones.
+    """
     invoices = []
+
+    rng = random.Random(seed) if seed is not None else random
+    if seed is not None:
+        Faker.seed(seed)
+    now = reference_date or datetime.utcnow()
 
     # ChromaDB profiles are seeded on startup in main.py lifespan,
     # so we don't need to do it here which causes a 36-second API blocking timeout!
@@ -20,7 +34,7 @@ async def generate_fake_invoices(db: AsyncSession, count: int = 100):
     num_heroes = min(count, len(HERO_CLIENTS))
     for i in range(num_heroes):
         hero = HERO_CLIENTS[i]
-        due_date = datetime.utcnow() - timedelta(days=hero.seed_days_overdue)
+        due_date = now - timedelta(days=hero.seed_days_overdue)
         invoice = Invoice(
             amount=hero.seed_amount,
             client_name=hero.name,
@@ -35,15 +49,15 @@ async def generate_fake_invoices(db: AsyncSession, count: int = 100):
     profiles = ["startup", "SME", "enterprise"]
     
     for _ in range(count - num_heroes):
-        profile = random.choices(profiles, weights=[0.3, 0.5, 0.2])[0]
+        profile = rng.choices(profiles, weights=[0.3, 0.5, 0.2])[0]
         
         # Randomize amount (₹10,000 to ₹50,00,000)
         if profile == "startup":
-            amount = random.randint(10000, 500000)
+            amount = rng.randint(10000, 500000)
         elif profile == "SME":
-            amount = random.randint(100000, 2000000)
+            amount = rng.randint(100000, 2000000)
         else:
-            amount = random.randint(1000000, 5000000)
+            amount = rng.randint(1000000, 5000000)
             
         client_name = fake.company()
         # Clean up company name for email domain
@@ -51,8 +65,8 @@ async def generate_fake_invoices(db: AsyncSession, count: int = 100):
         client_email = f"finance@{domain}"
         
         # Randomize overdue durations (1 to 60 days)
-        days_overdue = random.randint(1, 60)
-        due_date = datetime.utcnow() - timedelta(days=days_overdue)
+        days_overdue = rng.randint(1, 60)
+        due_date = now - timedelta(days=days_overdue)
         
         invoice = Invoice(
             amount=amount,

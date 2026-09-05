@@ -45,6 +45,24 @@ class ClientProfile:
     relationship_value: int = 0
     guardrails: List[str] = field(default_factory=list)
 
+    # --- Simulated behaviour (read only by src/simulation/client_env.py) ---
+    # These describe how the *environment* responds. They are not agent logic and
+    # must never be presented as agent performance.
+    # Baseline chance of paying in response to a single contact.
+    base_pay_rate: float = 0.15
+    # Chance of promising instead of paying.
+    ptp_rate: float = 0.10
+    # Of promises made, the share that are broken.
+    ptp_break_rate: float = 0.30
+    # Chance of disputing rather than paying.
+    dispute_rate: float = 0.05
+    # Chance of simply not responding at all.
+    ghost_rate: float = 0.30
+    # How strongly a discount moves this client. >1 means money works on them.
+    discount_sensitivity: float = 1.2
+    # How strongly an instalment plan moves them.
+    plan_sensitivity: float = 1.2
+
     # --- demo seeding ---
     seed_amount: int = 0
     seed_days_overdue: int = 0
@@ -74,6 +92,15 @@ HERO_CLIENTS: List[ClientProfile] = [
             "Delays are internal approval cycles, not cash flow. Waiting is usually correct.",
             "CC accounts@acme.com for invoices over Rs 5,00,000.",
         ],
+        # "10 of 12 paid on time. Delays are internal approval cycles, not cash
+        # flow." Pays readily and rarely ghosts; a discount barely moves them.
+        base_pay_rate=0.34,
+        ptp_rate=0.16,
+        ptp_break_rate=0.10,
+        dispute_rate=0.02,
+        ghost_rate=0.08,
+        discount_sensitivity=1.1,
+        plan_sensitivity=1.0,
         seed_amount=1_250_000,
         seed_days_overdue=22,
         narrative="""
@@ -105,6 +132,15 @@ HERO_CLIENTS: List[ClientProfile] = [
             "Has broken two Promise-to-Pay commitments in 2024. Treat new promises with scepticism.",
             "Firm but professional tone. 1.5% monthly late fee clause may be cited.",
         ],
+        # "Cash flow constrained. Has broken two Promise-to-Pay commitments in
+        # 2024." Promises often, keeps them less often, responds to money.
+        base_pay_rate=0.14,
+        ptp_rate=0.30,
+        ptp_break_rate=0.55,
+        dispute_rate=0.10,
+        ghost_rate=0.25,
+        discount_sensitivity=2.0,
+        plan_sensitivity=1.9,
         seed_amount=340_000,
         seed_days_overdue=12,
         narrative="""
@@ -140,6 +176,15 @@ HERO_CLIENTS: List[ClientProfile] = [
             "VP Singh responds only to Stage 2+ emails.",
             "Prefers formal language with contract clause references.",
         ],
+        # "Pattern of disputing consulting hours. Always accepts Milestone 1."
+        # Disputes readily; a split invoice unlocks the undisputed portion.
+        base_pay_rate=0.18,
+        ptp_rate=0.12,
+        ptp_break_rate=0.20,
+        dispute_rate=0.32,
+        ghost_rate=0.12,
+        discount_sensitivity=1.0,
+        plan_sensitivity=1.1,
         seed_amount=7_500_000,
         seed_days_overdue=45,
         narrative="""
@@ -175,6 +220,16 @@ HERO_CLIENTS: List[ClientProfile] = [
             "Consider a 10% early payment discount to accelerate recovery of whatever is possible.",
             "CEO is the only contact. No finance team.",
         ],
+        # "2 of 3 invoices ghosted. May be running out of runway." Mostly
+        # silent, but a discount or instalment plan converts some of that
+        # silence into partial recovery.
+        base_pay_rate=0.07,
+        ptp_rate=0.08,
+        ptp_break_rate=0.60,
+        dispute_rate=0.03,
+        ghost_rate=0.62,
+        discount_sensitivity=2.4,
+        plan_sensitivity=2.6,
         seed_amount=80_000,
         seed_days_overdue=35,
         narrative="""
@@ -260,4 +315,11 @@ def profile_as_dict(profile: ClientProfile) -> dict:
         "escalation_patience_days": profile.escalation_patience_days,
         "relationship_value": profile.relationship_value,
         "guardrails": list(profile.guardrails),
+        "base_pay_rate": profile.base_pay_rate,
+        "ptp_rate": profile.ptp_rate,
+        "ptp_break_rate": profile.ptp_break_rate,
+        "dispute_rate": profile.dispute_rate,
+        "ghost_rate": profile.ghost_rate,
+        "discount_sensitivity": profile.discount_sensitivity,
+        "plan_sensitivity": profile.plan_sensitivity,
     }

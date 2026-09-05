@@ -45,6 +45,12 @@ class RecoveryState(TypedDict):
     # Audited record of every side effect, produced by the tool layer.
     tool_calls: List[dict]
 
+    # --- Reproducibility and A/B (Phase 4) ---
+    # Seed for the simulated environment. Same seed + same portfolio = same run.
+    sim_seed: int
+    # "agent" uses decide_action; "ladder" is the fixed-schedule baseline.
+    policy: str
+
     # Client reply (if any)
     client_reply: Optional[str]
 

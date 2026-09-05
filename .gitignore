@@ -27,3 +27,7 @@ chroma_data/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local env backups (contain secrets)
+.env.*
+!.env.example
