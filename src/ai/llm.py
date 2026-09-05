@@ -1,33 +1,90 @@
 import json
-from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 from typing import Optional
 from src.config import settings
 
+PLACEHOLDER_KEYS = {
+    "your_anthropic_api_key_here",
+    "your_google_api_key_here",
+    "your_gemini_api_key_here",
+}
+
+
 def get_llm(temperature=0.7):
+    """
+    The chat model, resolved from configuration rather than hardcoded.
+
+    Both providers are supported so the project is not stranded when one account
+    runs out of credit, and so an A/B can be re-run on either. Anthropic and
+    Google both implement LangChain's `with_structured_output`, so the structured
+    AgentAction and IntentClassification schemas work unchanged across the swap.
+
+    Retries are capped and a timeout set: a tick runs on a clock, and a 400
+    invalid_request will never pass on a second attempt.
+    """
+    provider = settings.active_provider
+
+    if provider == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(
+            model=settings.google_model,
+            google_api_key=settings.google_api_key or "dummy-key",
+            temperature=temperature,
+            # Gemini's free tier returns 429 (rate limit) and 503 (model busy)
+            # routinely, and unlike a 400 those DO succeed on a retry, so this is
+            # worth more attempts than the Anthropic path gets.
+            max_retries=settings.llm_max_retries,
+            timeout=45.0,
+        )
+
+    from langchain_anthropic import ChatAnthropic
     return ChatAnthropic(
-        model_name="claude-3-5-sonnet-20241022",
+        model_name=settings.anthropic_model,
         anthropic_api_key=settings.anthropic_api_key or "dummy-key",
         temperature=temperature,
-        # A tick runs on a clock. An unreachable or unauthorised API should fall
-        # back quickly rather than burning the budget on retries that cannot
-        # succeed — a 400 invalid_request will never pass on the second attempt.
         max_retries=1,
         timeout=20.0,
     )
+
+def response_text(response) -> str:
+    """
+    Flatten a chat response to plain text.
+
+    Providers disagree on the shape of `content`: Anthropic returns a string,
+    Gemini returns a list of content parts. Calling .strip() on the latter raises
+    AttributeError, so every read of a response body goes through here.
+    """
+    content = getattr(response, "content", response)
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict):
+                parts.append(part.get("text") or part.get("content") or "")
+        return "".join(parts).strip()
+    return str(content).strip()
+
 
 def _llm_unavailable(client_name: str = None):
     """
     Returns a reason string when the LLM must not be used, else None.
 
-    Client-aware because of DEMO_FAST: the four written personas get live Claude,
-    filler invoices take the deterministic path. Gating only the decision node
-    still left ~100 draft and judge calls per tick, each paying full network
+    Client-aware because of DEMO_FAST: the four written personas get the live
+    model, filler invoices take the deterministic path. Gating only the decision
+    node still left ~100 draft and judge calls per tick, each paying full network
     latency before failing.
     """
-    if not settings.anthropic_api_key or settings.anthropic_api_key == "your_anthropic_api_key_here":
-        return "no ANTHROPIC_API_KEY configured"
+    provider = settings.active_provider
+    if provider == "none":
+        return "no model provider configured (set ANTHROPIC_API_KEY or GOOGLE_API_KEY)"
+
+    key = settings.llm_api_key
+    if not key or key in PLACEHOLDER_KEYS:
+        return f"no API key configured for provider '{provider}'"
     if client_name and settings.demo_fast:
         from src.domain.clients import is_hero
         if not is_hero(client_name):
@@ -136,7 +193,7 @@ Write a professional email appropriate for this escalation stage. Do NOT threate
             "previous_context": previous_context,
             "retrieved_context": retrieved_context
         })
-        return response.content.strip()
+        return response_text(response)
     except Exception as e:
         print(f"LLM Error drafting email: {e}")
         # A configured key can still fail at request time (no credit, rate
