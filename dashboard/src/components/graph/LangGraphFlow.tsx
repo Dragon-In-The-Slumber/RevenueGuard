@@ -101,7 +101,7 @@ export default function LangGraphFlow() {
         className="bg-[#0B0F19]"
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#ffffff" gap={20} size={1} opacity={0.03} />
+        <Background color="rgba(255, 255, 255, 0.03)" gap={20} size={1} />
         <Controls className="!bg-black/50 !border-white/10 !fill-white" />
       </ReactFlow>
     </div>
