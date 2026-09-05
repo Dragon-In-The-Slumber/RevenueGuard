@@ -1,6 +1,10 @@
+from src.logging_config import get_logger
 from fastapi import WebSocket
 from typing import List
 import json
+
+
+logger = get_logger("revenueguard.ws")
 
 class ConnectionManager:
     def __init__(self):
@@ -21,7 +25,7 @@ class ConnectionManager:
             try:
                 await connection.send_text(json_msg)
             except Exception as e:
-                print(f"Error sending message to websocket: {e}")
+                logger.warning(f"Error sending message to websocket: {e}")
                 self.disconnect(connection)
 
 manager = ConnectionManager()

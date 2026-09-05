@@ -1,8 +1,12 @@
+from src.logging_config import get_logger
 import json
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 from typing import Optional
 from src.config import settings
+
+
+logger = get_logger("revenueguard.llm")
 
 PLACEHOLDER_KEYS = {
     "your_anthropic_api_key_here",
@@ -100,7 +104,7 @@ def _template_draft(invoice, stage: str, reason: str) -> str:
     the UI: this text is a template, not model output, and must never be shown
     or described as AI-drafted.
     """
-    print("[LLM FALLBACK] draft_escalation_email -> template (" + reason + ")")
+    logger.info("[LLM FALLBACK] draft_escalation_email -> template (" + reason + ")")
     return (
         "[FALLBACK DRAFT - template, not AI-generated | " + reason + "]\n"
         "[" + stage + "]\n"
@@ -118,7 +122,7 @@ def _keyword_classify(email_text: str, reason: str) -> dict:
     Tagged with source="keyword_fallback" so callers and the audit trail can tell
     a heuristic apart from a real model classification.
     """
-    print("[LLM FALLBACK] classify_client_intent -> keywords (" + reason + ")")
+    logger.info("[LLM FALLBACK] classify_client_intent -> keywords (" + reason + ")")
     lower_text = email_text.lower()
 
     if "dispute" in lower_text or "incorrect" in lower_text or "wrong" in lower_text:
@@ -195,7 +199,7 @@ Write a professional email appropriate for this escalation stage. Do NOT threate
         })
         return response_text(response)
     except Exception as e:
-        print(f"LLM Error drafting email: {e}")
+        logger.warning(f"LLM Error drafting email: {e}")
         # A configured key can still fail at request time (no credit, rate
         # limit, network). Surface it loudly, then degrade to the template
         # rather than emitting an error string into a client-facing email.
@@ -244,7 +248,7 @@ Classify the client's intent and extract entities.
             "source": "llm",
         }
     except Exception as e:
-        print(f"LLM Error classifying intent: {e}")
+        logger.warning(f"LLM Error classifying intent: {e}")
         # An ERROR intent silently halts the workflow, so fall back to
         # keywords and mark the result as a heuristic.
         return _keyword_classify(email_text, "LLM call failed: " + type(e).__name__)

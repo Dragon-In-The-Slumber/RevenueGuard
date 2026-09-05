@@ -12,13 +12,18 @@ that reads the *same* profile fields. The fallback is always tagged `source`
 so a heuristic is never presented as model reasoning.
 """
 
+from src.logging_config import get_logger
 import json
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from src.config import settings
 from src.ai.llm import get_llm, _llm_unavailable
 from src.domain.clients import stage_rank
+
+
+logger = get_logger("revenueguard.agent")
 
 ACTION_MENU = [
     "SEND_EMAIL",
@@ -249,8 +254,6 @@ async def choose_action(ctx: dict) -> dict:
     `source` is "llm" for a model decision and "policy_heuristic" when Claude was
     unavailable, so the audit trail can never present a heuristic as agent reasoning.
     """
-    from src.config import settings
-
     unavailable = _llm_unavailable()
     if unavailable:
         action = _heuristic_action(ctx)
@@ -301,7 +304,7 @@ async def choose_action(ctx: dict) -> dict:
         _decision_cache[key] = decision
         return {**decision, "source": "llm"}
     except Exception as e:
-        print(f"[LLM FALLBACK] decide_action -> policy heuristic (LLM call failed: {type(e).__name__})")
+        logger.warning(f"[LLM FALLBACK] decide_action -> policy heuristic (LLM call failed: {type(e).__name__})")
         action = _heuristic_action(ctx)
         return {
             **action.model_dump(),

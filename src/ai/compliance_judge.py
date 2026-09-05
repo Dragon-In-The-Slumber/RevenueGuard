@@ -1,6 +1,7 @@
 import hashlib
 import re
 import json
+from src.ai.llm import _llm_unavailable, get_llm, response_text
 from langchain_core.prompts import ChatPromptTemplate
 from src.config import settings
 import logging
@@ -33,7 +34,6 @@ Return JSON: {{"verdict": "PASS" or "FAIL", "reason": "...", "suggestions": "...
 
 async def evaluate_email_compliance(email_body: str, escalation_stage: str, context: str = "",
                                     client_name: str = None) -> dict:
-    from src.ai.llm import _llm_unavailable
     unavailable = _llm_unavailable(client_name)
     if unavailable:
         # Deterministic, not random. An unseeded 20% coin flip here changed which
@@ -61,7 +61,6 @@ async def evaluate_email_compliance(email_body: str, escalation_stage: str, cont
         # Same provider as the rest of the system, resolved from config. This used
         # to construct its own Anthropic client, which meant the judge ignored the
         # provider setting entirely.
-        from src.ai.llm import get_llm
         llm = get_llm(temperature=0)
         
         prompt = ChatPromptTemplate.from_messages([
@@ -77,7 +76,6 @@ async def evaluate_email_compliance(email_body: str, escalation_stage: str, cont
             "context": context
         })
         
-        from src.ai.llm import response_text
         content = response_text(response)
         # Ensure we parse JSON out of the response
         try:

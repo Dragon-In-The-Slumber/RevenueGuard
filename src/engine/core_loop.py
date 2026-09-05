@@ -1,3 +1,4 @@
+from src.logging_config import get_logger
 import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import settings
@@ -9,6 +10,8 @@ from src.persistence.models import Invoice, InvoiceStatus
 from datetime import datetime, timedelta
 
 from src.graph.builder import compiled_graph
+
+logger = get_logger("revenueguard.engine")
 
 
 def build_recovery_state(invoice: Invoice, virtual_date: datetime, last_email_dt: datetime | None,
@@ -183,7 +186,7 @@ async def process_simulation_tick(db: AsyncSession, virtual_date: datetime,
             except Exception as e:
                 # One invoice failing must not abort the tick, but it must be
                 # visible rather than silently dropped.
-                print(f"Tick error on invoice {state['invoice_id']}: {type(e).__name__}: {e}")
+                logger.warning(f"Tick error on invoice {state['invoice_id']}: {type(e).__name__}: {e}")
                 return {
                     **state,
                     "audit_entries": state.get("audit_entries", []) + [{

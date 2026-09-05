@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from src.config import settings
+from src.logging_config import configure_logging, get_logger
 from src.persistence.database import init_db, get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.schemas import SimulationBatchRequest
@@ -25,6 +26,8 @@ from sqlalchemy import delete
 from src.graph.builder import reply_graph
 from src.simulation.runner import run_simulation, compare
 
+logger = get_logger("revenueguard.api")
+
 # Global state for simulation virtual date
 simulation_state = {
     "virtual_date": datetime.utcnow(),
@@ -34,6 +37,10 @@ simulation_state = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_logging()
+    logger.info("Starting RevenueGuard | provider=%s model=%s razorpay=%s",
+                settings.active_provider, settings.active_model,
+                "live" if settings.razorpay_configured else "mock")
     await init_db()
     # Initialize ChromaDB and seed RAG context on startup
     seed_database()
