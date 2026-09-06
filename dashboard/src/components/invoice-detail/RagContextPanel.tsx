@@ -65,7 +65,7 @@ export default function RagContextPanel({ clientName }: { clientName: string }) 
 
         <div>
           <p className="text-[10px] uppercase font-mono tracking-wider text-white/30 mb-1">Contract Terms</p>
-          <p className="text-sm text-white/80 font-mono text-[#00F0FF]">{profile.terms}</p>
+          <p className="text-sm text-white/80 font-mono text-accent-primary">{profile.terms}</p>
         </div>
 
         <div>

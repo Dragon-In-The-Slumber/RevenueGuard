@@ -8,7 +8,7 @@ export default function GraphNode({ data }: { data: any }) {
       relative p-4 rounded-xl border transition-all duration-500 w-64
       ${isActive 
         ? `bg-${color}-500/20 border-${color}-400 text-white shadow-[0_0_25px_rgba(var(--${color}-rgb),0.6)] scale-105` 
-        : 'bg-[#0B0F19]/90 border-white/10 text-white/70 shadow-lg backdrop-blur-md'
+        : 'bg-bg-deep/90 border-white/10 text-white/70 shadow-lg backdrop-blur-md'
       }
     `}>
       <Handle type="target" position={Position.Top} className="w-2 h-2 !bg-white/50 !border-0" />

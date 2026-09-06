@@ -132,7 +132,7 @@ export default function SimulationController() {
           {autoRun && (
             <div className="flex-1 max-w-xs mx-4 h-2 bg-white/10 rounded-full overflow-hidden">
               <div 
-                className="h-full bg-[#00F0FF] transition-all duration-300"
+                className="h-full bg-accent-primary transition-all duration-300"
                 style={{ width: `${(autoRunProgress / autoRunTotal) * 100}%` }}
               />
             </div>

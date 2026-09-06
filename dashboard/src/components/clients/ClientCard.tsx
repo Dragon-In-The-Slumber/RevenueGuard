@@ -18,7 +18,7 @@ export default function ClientCard({ client, onClick, isSelected }: { client: Cl
     <div 
       onClick={onClick}
       className={`glass-panel p-5 cursor-pointer transition-all duration-300 relative overflow-hidden group
-        ${isSelected ? 'border-[#00F0FF] shadow-[0_0_20px_rgba(0,240,255,0.2)]' : 'hover:bg-white/[0.03]'}
+        ${isSelected ? 'border-accent-primary shadow-[0_0_20px_rgba(0,240,255,0.2)]' : 'hover:bg-white/[0.03]'}
       `}
     >
       <div className={`absolute -right-10 -top-10 w-32 h-32 rounded-full blur-3xl opacity-20 transition-colors
@@ -28,7 +28,7 @@ export default function ClientCard({ client, onClick, isSelected }: { client: Cl
       <div className="flex justify-between items-start mb-4 relative z-10">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="font-bold text-lg text-white group-hover:text-[#00F0FF] transition-colors">{client.name}</h3>
+            <h3 className="font-bold text-lg text-white group-hover:text-accent-primary transition-colors">{client.name}</h3>
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-white/70">{client.tier}</span>
           </div>
           <p className="text-xs text-white/50">{client.invoice_count} Active Invoices</p>
@@ -64,7 +64,7 @@ export default function ClientCard({ client, onClick, isSelected }: { client: Cl
           </div>
           <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
             <div 
-              className="h-full bg-[#00F0FF]"
+              className="h-full bg-accent-primary"
               style={{ width: `${client.total_amount > 0 ? (client.recovered_amount / client.total_amount) * 100 : 0}%` }}
             />
           </div>

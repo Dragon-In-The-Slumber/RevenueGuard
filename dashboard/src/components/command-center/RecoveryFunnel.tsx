@@ -14,7 +14,7 @@ export default function RecoveryFunnel() {
   return (
     <div className="glass-panel p-5 h-full flex flex-col">
       <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2">
-        <span className="text-[#00F0FF]">▼</span> Recovery Funnel
+        <span className="text-accent-primary">▼</span> Recovery Funnel
       </h3>
       
       <QueryBoundary

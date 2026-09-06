@@ -16,7 +16,7 @@ export default function ActivityTicker() {
   return (
     <div className="glass-panel p-5 h-full flex flex-col">
       <h3 className="text-sm font-bold text-white mb-4 uppercase tracking-widest flex items-center gap-2">
-        <span className="text-[#8B5CF6]">⚡</span> Live Activity Feed
+        <span className="text-accent-secondary">⚡</span> Live Activity Feed
       </h3>
       
       <div className="flex-1 max-h-[400px] overflow-y-auto no-scrollbar space-y-3 pr-2">

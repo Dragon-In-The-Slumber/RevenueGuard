@@ -65,7 +65,7 @@ export default function ClientInvoiceList({ clientName }: { clientName: string }
                 <td className="px-4 py-3"><StatusBadge status={inv.status} /></td>
                 <td className="px-4 py-3"><EscalationProgress stage={inv.escalation_stage} /></td>
                 <td className="px-4 py-3 text-right">
-                  <Link href={`/invoices/${inv.id}`} className="text-[#00F0FF] hover:underline text-xs">
+                  <Link href={`/invoices/${inv.id}`} className="text-accent-primary hover:underline text-xs">
                     Details →
                   </Link>
                 </td>

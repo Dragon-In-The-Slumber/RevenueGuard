@@ -42,7 +42,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-emerald-500/20"
                 : toast.type === "error"
                   ? "bg-red-500/15 border-red-500/40 text-red-300 shadow-red-500/20"
-                  : "bg-[#00F0FF]/15 border-[#00F0FF]/40 text-[#00F0FF] shadow-[#00F0FF]/20"
+                  : "bg-accent-primary/15 border-accent-primary/40 text-accent-primary shadow-accent-primary/20"
             }`}
           >
             <div className="flex items-center gap-2">

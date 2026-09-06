@@ -55,7 +55,7 @@ export default function InvoiceHeader({ invoice }: { invoice: Invoice }) {
               }
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs text-[#00F0FF] hover:underline flex items-center gap-1"
+              className="text-xs text-accent-primary hover:underline flex items-center gap-1"
             >
               Payment Link ↗
             </a>

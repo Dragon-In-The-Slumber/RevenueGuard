@@ -48,7 +48,7 @@ export default function ExecutionTrace() {
     <div className="mt-8">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2">
-          <span className="text-[#00F0FF]">⎍</span> Execution Trace
+          <span className="text-accent-primary">⎍</span> Execution Trace
           {live && lastTickAt && (
             <span className="text-[10px] font-mono text-emerald-400 normal-case tracking-normal">
               live
@@ -58,7 +58,7 @@ export default function ExecutionTrace() {
         {invoiceId !== null && (
           <div className="text-xs font-mono text-white/50 bg-white/5 px-3 py-1 rounded-full border border-white/10">
             Invoice{" "}
-            <Link href={`/invoices/${invoiceId}`} className="text-[#00F0FF] hover:underline">
+            <Link href={`/invoices/${invoiceId}`} className="text-accent-primary hover:underline">
               #{invoiceId}
             </Link>
             {clientName ? ` (${clientName})` : ""}

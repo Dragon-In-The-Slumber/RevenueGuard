@@ -5,7 +5,7 @@ export default function EventLog({ logs }: { logs: WebhookEventLog[] }) {
   return (
     <div className="glass-panel p-6 h-full flex flex-col">
       <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2 shrink-0">
-        <span className="text-[#00F0FF]">📝</span> Session Event Log
+        <span className="text-accent-primary">📝</span> Session Event Log
       </h3>
 
       <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 pr-2 min-h-[400px]">
@@ -34,7 +34,7 @@ export default function EventLog({ logs }: { logs: WebhookEventLog[] }) {
               </div>
               
               <div className="text-xs text-white/70 font-mono mb-2">
-                Target Invoice: <span className="text-[#00F0FF]">#{log.invoiceId}</span>
+                Target Invoice: <span className="text-accent-primary">#{log.invoiceId}</span>
               </div>
               
               <div className="bg-black/40 p-3 rounded border border-white/5 text-[10px] font-mono text-white/50 overflow-x-auto">

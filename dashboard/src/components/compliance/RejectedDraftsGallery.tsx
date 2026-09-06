@@ -37,7 +37,7 @@ export default function RejectedDraftsGallery() {
                     <p className="text-xs text-white/50 mb-1">
                       {new Date(log.timestamp).toLocaleString()}
                     </p>
-                    <Link href={`/invoices/${log.invoice_id}`} className="text-sm font-bold text-white hover:text-[#00F0FF] transition-colors">
+                    <Link href={`/invoices/${log.invoice_id}`} className="text-sm font-bold text-white hover:text-accent-primary transition-colors">
                       {log.client_name} (Invoice #{log.invoice_id})
                     </Link>
                   </div>

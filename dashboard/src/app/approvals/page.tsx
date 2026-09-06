@@ -97,7 +97,7 @@ export default function ApprovalsPage() {
                   <div className="flex items-center gap-3 mb-1">
                     <Link
                       href={`/invoices/${a.invoice_id}`}
-                      className="text-base font-bold text-white hover:text-[#00F0FF] transition-colors"
+                      className="text-base font-bold text-white hover:text-accent-primary transition-colors"
                     >
                       {a.client_name}
                     </Link>
@@ -149,7 +149,7 @@ export default function ApprovalsPage() {
                   value={notes[a.invoice_id] || ""}
                   onChange={(e) => setNotes({ ...notes, [a.invoice_id]: e.target.value })}
                   placeholder="Decision note (recorded in the audit trail)…"
-                  className="flex-1 bg-black/40 border border-white/10 rounded px-3 py-1.5 text-xs text-white outline-none focus:border-[#00F0FF]"
+                  className="flex-1 bg-black/40 border border-white/10 rounded px-3 py-1.5 text-xs text-white outline-none focus:border-accent-primary"
                 />
                 <button
                   onClick={() => decide(a.invoice_id, "approve")}

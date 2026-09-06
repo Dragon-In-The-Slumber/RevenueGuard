@@ -13,7 +13,7 @@ export default function AuditTimeline({ invoiceId }: { invoiceId: number }) {
   return (
     <div className="mt-6 ml-2">
       <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2">
-        <span className="text-[#00F0FF]">▼</span> Audit Timeline
+        <span className="text-accent-primary">▼</span> Audit Timeline
       </h3>
       <div className="pl-2">
         <QueryBoundary

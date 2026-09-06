@@ -12,7 +12,7 @@ export default function EscalationProgress({ stage }: { stage: string }) {
           key={step} 
           className={`h-2 w-4 rounded-sm transition-colors ${
             step <= level 
-              ? 'bg-[#00F0FF] shadow-[0_0_5px_#00F0FF]' 
+              ? 'bg-accent-primary shadow-[0_0_5px_var(--accent-primary)]' 
               : 'bg-white/10'
           }`}
         />

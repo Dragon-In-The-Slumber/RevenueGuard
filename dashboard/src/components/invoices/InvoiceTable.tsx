@@ -34,7 +34,7 @@ export default function InvoiceTable() {
           <select 
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-black/40 border border-white/10 text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-[#00F0FF] transition-colors"
+            className="bg-black/40 border border-white/10 text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent-primary transition-colors"
           >
             <option value="ALL">All Statuses</option>
             {Object.entries(STATUS_CONFIG).map(([key, config]) => (
@@ -53,7 +53,7 @@ export default function InvoiceTable() {
             placeholder="Search clients..." 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-black/40 border border-white/10 text-white text-sm rounded-lg pl-9 pr-3 py-2 outline-none focus:border-[#00F0FF] transition-colors"
+            className="w-full bg-black/40 border border-white/10 text-white text-sm rounded-lg pl-9 pr-3 py-2 outline-none focus:border-accent-primary transition-colors"
           />
         </div>
       </div>
@@ -75,7 +75,7 @@ export default function InvoiceTable() {
           }
         >
         <table className="w-full text-left text-sm text-white border-collapse">
-          <thead className="sticky top-0 bg-[#0B0F19]/90 backdrop-blur-md z-20 shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
+          <thead className="sticky top-0 bg-bg-deep/90 backdrop-blur-md z-20 shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
             <tr>
               <th className="px-6 py-4 font-mono text-xs uppercase tracking-wider text-white/50 border-b border-white/5 font-normal">ID</th>
               <th className="px-6 py-4 font-mono text-xs uppercase tracking-wider text-white/50 border-b border-white/5 font-normal">Client</th>
@@ -100,7 +100,7 @@ export default function InvoiceTable() {
               >
                 <td className="px-6 py-4 font-mono text-white/40">#{inv.id}</td>
                 <td className="px-6 py-4">
-                  <p className="font-bold text-white group-hover:text-[#00F0FF] transition-colors">{inv.client_name}</p>
+                  <p className="font-bold text-white group-hover:text-accent-primary transition-colors">{inv.client_name}</p>
                   <p className="text-xs text-white/40">{inv.client_email}</p>
                 </td>
                 <td className="px-6 py-4 font-mono">₹{inv.amount.toLocaleString('en-IN')}</td>

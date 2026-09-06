@@ -93,9 +93,9 @@ export default function LangGraphFlow() {
         return {
           ...edge,
           style: { 
-            stroke: isSourceActive || isTargetActive ? '#00F0FF' : 'rgba(255,255,255,0.2)',
+            stroke: isSourceActive || isTargetActive ? 'var(--accent-primary)' : 'rgba(255,255,255,0.2)',
             strokeWidth: isSourceActive || isTargetActive ? 3 : 1,
-            filter: isSourceActive || isTargetActive ? 'drop-shadow(0 0 5px #00F0FF)' : 'none'
+            filter: isSourceActive || isTargetActive ? 'drop-shadow(0 0 5px var(--accent-primary))' : 'none'
           }
         };
       })
@@ -111,7 +111,7 @@ export default function LangGraphFlow() {
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
         fitView
-        className="bg-[#0B0F19]"
+        className="bg-bg-deep"
         proOptions={{ hideAttribution: true }}
       >
         <Background color="rgba(255, 255, 255, 0.03)" gap={20} size={1} />

@@ -57,12 +57,12 @@ export default function QuickActions({ invoiceId }: { invoiceId: number }) {
             if (e.key === "Escape") { setComposing(false); setReply(""); }
           }}
           placeholder="Client reply…"
-          className="w-56 bg-black/40 border border-[#00F0FF]/40 rounded px-2 py-1 text-xs text-white outline-none"
+          className="w-56 bg-black/40 border border-accent-primary/40 rounded px-2 py-1 text-xs text-white outline-none"
         />
         <button
           onClick={handleSimulateReply}
           disabled={loading || !reply.trim()}
-          className="px-2 py-1 rounded bg-[#00F0FF]/20 text-[#00F0FF] text-[10px] font-bold uppercase tracking-wider disabled:opacity-40"
+          className="px-2 py-1 rounded bg-accent-primary/20 text-accent-primary text-[10px] font-bold uppercase tracking-wider disabled:opacity-40"
         >
           Send
         </button>

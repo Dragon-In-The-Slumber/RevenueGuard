@@ -35,7 +35,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           loadingFallback={
             <div className="flex items-center justify-center min-h-[40vh]">
               <div className="flex items-center gap-3 text-white/50 font-mono">
-                <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-[#00F0FF] animate-spin" />
+                <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-accent-primary animate-spin" />
                 Loading Invoice Details...
               </div>
             </div>

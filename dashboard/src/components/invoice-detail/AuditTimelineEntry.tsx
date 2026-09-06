@@ -14,7 +14,7 @@ export default function AuditTimelineEntry({ entry, nextEntry }: { entry: AuditL
 
   return (
     <div className="relative pl-8 py-4 border-l-2 border-white/10 last:border-transparent group">
-      <div className={`absolute -left-[9px] top-5 w-4 h-4 rounded-full border-[3px] border-[#0B0F19] flex items-center justify-center bg-current ${config.color}`} />
+      <div className={`absolute -left-[9px] top-5 w-4 h-4 rounded-full border-[3px] border-bg-deep flex items-center justify-center bg-current ${config.color}`} />
       
       <div 
         className={`glass-panel p-4 transition-colors ${hasDetails ? "cursor-pointer hover:bg-white/[0.03]" : ""}`}

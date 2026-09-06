@@ -34,12 +34,12 @@ export default function Sidebar() {
   const { data: simState, error: simError } = useApi<{virtual_date: string}>("/api/simulation/state");
 
   return (
-    <aside className="sidebar flex flex-col h-full bg-[#0B0F19] border-r border-white/5 w-64">
+    <aside className="sidebar flex flex-col h-full border-r border-border-subtle">
       {/* Logo */}
       <div className="px-5 pt-6 pb-4 border-b border-white/5">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" 
-               style={{ background: "linear-gradient(135deg, #00F0FF, #8B5CF6)" }}>
+               style={{ background: "linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))" }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
               <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
             </svg>
@@ -78,7 +78,7 @@ export default function Sidebar() {
               <span className="nav-icon text-lg">{item.icon}</span>
               <span>{item.label}</span>
               {isActive && (
-                <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#00F0FF] shadow-[0_0_6px_#00F0FF]" />
+                <span className="ml-auto w-1.5 h-1.5 rounded-full bg-accent-primary shadow-[0_0_6px_var(--accent-primary)]" />
               )}
             </Link>
           );

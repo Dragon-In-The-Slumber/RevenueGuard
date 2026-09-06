@@ -49,9 +49,9 @@ export default function ReplySimulator({ invoiceId }: { invoiceId: number }) {
   };
 
   return (
-    <div className="glass-panel p-5 mt-6 border-t-[3px] border-[#00F0FF]/30">
+    <div className="glass-panel p-5 mt-6 border-t-[3px] border-accent-primary/30">
       <h3 className="text-sm font-bold text-white mb-4 uppercase tracking-widest flex items-center gap-2">
-        <span className="text-[#00F0FF]">🎮</span> Interactive Simulator
+        <span className="text-accent-primary">🎮</span> Interactive Simulator
       </h3>
 
       <div className="space-y-6">
@@ -95,13 +95,13 @@ export default function ReplySimulator({ invoiceId }: { invoiceId: number }) {
               value={customText}
               onChange={(e) => setCustomText(e.target.value)}
               placeholder="Custom client reply..."
-              className="flex-1 bg-black/40 border border-white/10 rounded px-3 py-1.5 text-xs text-white outline-none focus:border-[#00F0FF]"
+              className="flex-1 bg-black/40 border border-white/10 rounded px-3 py-1.5 text-xs text-white outline-none focus:border-accent-primary"
               onKeyDown={(e) => e.key === 'Enter' && sendReply(customText)}
             />
             <button 
               onClick={() => sendReply(customText)}
               disabled={loading || !customText.trim()}
-              className="bg-[#00F0FF]/20 text-[#00F0FF] hover:bg-[#00F0FF]/30 px-3 py-1.5 rounded text-xs font-bold transition-colors disabled:opacity-50"
+              className="bg-accent-primary/20 text-accent-primary hover:bg-accent-primary/30 px-3 py-1.5 rounded text-xs font-bold transition-colors disabled:opacity-50"
             >
               Send
             </button>

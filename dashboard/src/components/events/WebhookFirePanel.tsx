@@ -66,7 +66,7 @@ export default function WebhookFirePanel({ onEventFired }: { onEventFired: (log:
   return (
     <div className="glass-panel p-6">
       <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2">
-        <span className="text-[#00F0FF]">⚡</span> Fire Webhook Event
+        <span className="text-accent-primary">⚡</span> Fire Webhook Event
       </h3>
 
       <div className="space-y-4">
@@ -81,7 +81,7 @@ export default function WebhookFirePanel({ onEventFired }: { onEventFired: (log:
             loadingFallback={<div className="h-10 animate-pulse rounded-lg bg-white/5" />}
           >
           <select 
-            className="w-full bg-black/40 border border-white/10 text-white rounded-lg px-4 py-2 outline-none focus:border-[#00F0FF] transition-colors"
+            className="w-full bg-black/40 border border-white/10 text-white rounded-lg px-4 py-2 outline-none focus:border-accent-primary transition-colors"
             value={selectedInvoice}
             onChange={(e) => setSelectedInvoice(e.target.value)}
           >
@@ -98,7 +98,7 @@ export default function WebhookFirePanel({ onEventFired }: { onEventFired: (log:
         <div>
           <label className="block text-[10px] uppercase font-mono text-white/50 mb-2">Event Type</label>
           <select 
-            className="w-full bg-black/40 border border-white/10 text-white rounded-lg px-4 py-2 outline-none focus:border-[#00F0FF] transition-colors"
+            className="w-full bg-black/40 border border-white/10 text-white rounded-lg px-4 py-2 outline-none focus:border-accent-primary transition-colors"
             value={selectedEvent}
             onChange={(e) => setSelectedEvent(e.target.value)}
           >
@@ -113,7 +113,7 @@ export default function WebhookFirePanel({ onEventFired }: { onEventFired: (log:
         <button 
           onClick={handleFireEvent}
           disabled={loading || !selectedInvoice}
-          className="w-full mt-4 bg-[#00F0FF]/20 text-[#00F0FF] border border-[#00F0FF]/30 hover:bg-[#00F0FF]/30 px-6 py-3 rounded-lg font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider text-xs flex items-center justify-center gap-2"
+          className="w-full mt-4 bg-accent-primary/20 text-accent-primary border border-accent-primary/30 hover:bg-accent-primary/30 px-6 py-3 rounded-lg font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider text-xs flex items-center justify-center gap-2"
         >
           {loading ? (
             <span className="animate-pulse">Firing...</span>
