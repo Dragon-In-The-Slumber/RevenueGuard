@@ -1,7 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update, func
-from src.persistence.models import Invoice, AuditLog, InvoiceStatus
+from sqlalchemy import delete
+from src.persistence.models import Base, Invoice, AuditLog, InvoiceStatus
 from faker import Faker
 import random
 from datetime import datetime, timedelta
@@ -83,6 +84,28 @@ async def generate_fake_invoices(db: AsyncSession, count: int = 100,
     # We don't return the list of 100 objects fully to avoid memory bloat if count is huge,
     # but for 100 it's fine. We'll just return the count.
     return count
+
+async def clear_all_data(db: AsyncSession) -> dict:
+    """
+    Delete every simulation row, in foreign-key-safe order. Commits.
+
+    The order is derived from SQLAlchemy's metadata rather than hand-written.
+    Reset used to delete audit_logs then invoices explicitly, which broke the
+    moment webhook_events arrived with its own foreign key to invoices — the
+    endpoint returned a 500 and the Reset button silently did nothing. Sorting
+    the tables by dependency means the next table to be added is handled without
+    anyone remembering to update this function.
+
+    Returns {table_name: rows_deleted} so the caller can report what it did.
+    """
+    deleted = {}
+    # sorted_tables is parents-first; deleting children first is the reverse.
+    for table in reversed(Base.metadata.sorted_tables):
+        result = await db.execute(delete(table))
+        deleted[table.name] = result.rowcount or 0
+    await db.commit()
+    return deleted
+
 
 async def get_actionable_invoices(db: AsyncSession):
     """

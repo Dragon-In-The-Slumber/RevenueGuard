@@ -14,16 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.agent_policy import clear_decision_cache
 from src.engine.core_loop import process_simulation_tick
-from src.persistence.crud import generate_fake_invoices
+from src.persistence.crud import clear_all_data, generate_fake_invoices
 from src.persistence.models import AuditLog, Invoice, InvoiceStatus, WebhookEvent
 
 
 async def reset_world(db: AsyncSession) -> None:
     """Clear every row so a run starts from an identical blank slate."""
-    await db.execute(delete(WebhookEvent))
-    await db.execute(delete(AuditLog))
-    await db.execute(delete(Invoice))
-    await db.commit()
+    # Shares one FK-safe implementation with the reset endpoint; this used to be
+    # a second hand-maintained delete list that could drift out of step.
+    await clear_all_data(db)
 
 
 async def collect_metrics(db: AsyncSession, policy: str, seed: int,

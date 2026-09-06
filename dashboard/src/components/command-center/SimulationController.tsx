@@ -2,6 +2,8 @@
 import { useState } from "react";
 import { apiPost } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
+import { useToast } from "@/components/ToastProvider";
+import { useSWRConfig } from "swr";
 
 export default function SimulationController() {
   const [loading, setLoading] = useState(false);
@@ -9,6 +11,8 @@ export default function SimulationController() {
   const [autoRunProgress, setAutoRunProgress] = useState(0);
   const [autoRunTotal, setAutoRunTotal] = useState(30);
   const [virtualDate, setVirtualDate] = useState<string | null>(null);
+  const { addToast } = useToast();
+  const { mutate } = useSWRConfig();
 
   const handleGenerate = async (count: number) => {
     try {
@@ -53,11 +57,25 @@ export default function SimulationController() {
   };
 
   const handleReset = async () => {
+    // Destructive and irreversible: confirm before wiping the demo dataset.
+    if (!window.confirm("Delete every invoice and audit row? This cannot be undone.")) return;
+
     try {
       setLoading(true);
-      await apiPost("/api/simulation/reset", {});
+      const res = await apiPost<{ message: string; virtual_date: string }>(
+        "/api/simulation/reset",
+        {}
+      );
+      setVirtualDate(res.virtual_date);
+      addToast(res.message, "success");
+      // Refresh the panels that were showing the now-deleted data.
+      ["/api/invoices", "/api/metrics", "/api/funnel", "/api/audit-logs",
+       "/api/clients", "/api/approvals", "/api/compliance/stats",
+       "/api/compliance/rejected", "/api/simulation/state"].forEach((key) => mutate(key));
     } catch (e) {
-      console.error(e);
+      // This used to console.error, so a failing reset looked like a button that
+      // simply did nothing.
+      addToast(e instanceof Error ? e.message : "Reset failed", "error");
     } finally {
       setLoading(false);
     }

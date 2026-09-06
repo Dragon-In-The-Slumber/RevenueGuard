@@ -7,7 +7,8 @@ from src.persistence.database import init_db, get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.schemas import SimulationBatchRequest
 from src.persistence.crud import (
-    generate_fake_invoices, get_last_email_date, log_audit_event, count_client_replies
+    generate_fake_invoices, get_last_email_date, log_audit_event, count_client_replies,
+    clear_all_data
 )
 from src.engine.core_loop import (
     process_simulation_tick, build_recovery_state, apply_state_to_invoice, persist_audit_entries
@@ -157,14 +158,21 @@ async def get_simulation_state():
 @app.post("/api/simulation/reset")
 async def reset_simulation(db: AsyncSession = Depends(get_db),
                            _: None = Depends(require_demo_token)):
-    """Clears all invoices and audit logs, and resets virtual date."""
-    await db.execute(delete(AuditLog))
-    await db.execute(delete(Invoice))
-    await db.commit()
-    
+    """Clears every simulation row and resets the virtual clock."""
+    deleted = await clear_all_data(db)
+
     simulation_state["virtual_date"] = datetime.utcnow()
+    simulation_state["seed"] = 42
     await manager.broadcast({"event": "state_updated"})
-    return {"status": "success", "message": "Database reset."}
+
+    total = sum(deleted.values())
+    logger.info("Simulation reset: %s", deleted)
+    return {
+        "status": "success",
+        "message": f"Cleared {total} row(s).",
+        "deleted": deleted,
+        "virtual_date": simulation_state["virtual_date"].isoformat(),
+    }
 
 @app.post("/api/simulation/run")
 async def run_reproducible_simulation(

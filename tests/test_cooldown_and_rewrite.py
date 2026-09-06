@@ -89,3 +89,42 @@ def test_the_action_the_agent_chose_changes_the_outcome_probability():
     discount = simulate_response(
         {**base, "effective_action": {"action": "OFFER_DISCOUNT", "discount_pct": 10.0}}, 42)
     assert discount["p_pay"] > email["p_pay"]
+
+
+async def test_reset_clears_every_table_including_foreign_key_children(db):
+    """
+    Reset deleted audit_logs and invoices from a hand-written list, so it began
+    returning 500 the moment webhook_events arrived with its own foreign key to
+    invoices — the Reset button silently did nothing. The order now comes from
+    SQLAlchemy metadata, so a new table is handled without editing this code.
+    """
+    from sqlalchemy import func, select
+
+    from src.persistence.crud import clear_all_data
+    from src.persistence.models import AuditLog, Invoice, WebhookEvent
+    from tests.conftest import make_invoice
+
+    invoice = make_invoice()
+    db.add(invoice)
+    await db.commit()
+    await db.refresh(invoice)
+
+    db.add(AuditLog(invoice_id=invoice.id, event_type="EMAIL_SENT", action_taken="sent"))
+    db.add(WebhookEvent(event_id="evt_test_1", event_type="invoice.paid", invoice_id=invoice.id))
+    await db.commit()
+
+    deleted = await clear_all_data(db)
+
+    assert deleted["webhook_events"] == 1
+    assert deleted["invoices"] == 1
+    for model in (WebhookEvent, AuditLog, Invoice):
+        remaining = (await db.execute(select(func.count()).select_from(model))).scalar()
+        assert remaining == 0, f"{model.__tablename__} still has rows"
+
+
+async def test_reset_is_idempotent_on_an_empty_database(db):
+    """Resetting twice must not raise; the second call simply deletes nothing."""
+    from src.persistence.crud import clear_all_data
+
+    assert sum((await clear_all_data(db)).values()) == 0
+    assert sum((await clear_all_data(db)).values()) == 0
