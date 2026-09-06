@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-3-5-sonnet-20241022"
     google_api_key: str = ""
-    google_model: str = "gemini-3.5-flash"
+    google_model: str = "gemini-3.5-flash-lite"
 
     # --- Razorpay ---
     razorpay_key_id: str = ""

@@ -9,7 +9,7 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - LLM_PROVIDER=${LLM_PROVIDER:-auto}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - GOOGLE_MODEL=${GOOGLE_MODEL:-gemini-3.5-flash}
+      - GOOGLE_MODEL=${GOOGLE_MODEL:-gemini-3.5-flash-lite}
       # Throughput knobs. Defaults suit a free-tier key (5 requests/minute);
       # raise TICK_CONCURRENCY and set DEMO_FAST=false on a paid key.
       - TICK_CONCURRENCY=${TICK_CONCURRENCY:-3}
