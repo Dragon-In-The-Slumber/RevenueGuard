@@ -126,6 +126,7 @@ async def persist_audit_entries(db: AsyncSession, invoice_id: int, entries: list
             rule_applied=entry.get("rule"),
             content_snapshot=entry.get("content"),
             compliance_verdict=entry.get("compliance_verdict"),
+            verdict_source=entry.get("verdict_source"),
         )
     return len(entries)
 
@@ -142,6 +143,7 @@ def _audit_rows(invoice_id: int, entries: list[dict], virtual_date: datetime) ->
             rule_applied=entry.get("rule"),
             content_snapshot=entry.get("content"),
             compliance_verdict=entry.get("compliance_verdict"),
+            verdict_source=entry.get("verdict_source"),
         )
         for idx, entry in enumerate(entries)
     ]

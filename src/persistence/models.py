@@ -70,7 +70,11 @@ class AuditLog(Base):
     rule_applied = Column(String, nullable=True)
     action_taken = Column(String, nullable=False)
     content_snapshot = Column(String, nullable=True)
-    compliance_verdict = Column(String(10), nullable=True)
+    compliance_verdict = Column(String(12), nullable=True)
+    # Who produced the verdict: "llm", "deterministic" (DEMO_FAST scaffolding) or
+    # "unavailable". Without this the Compliance page cannot tell a real review
+    # from demo scaffolding, and would present the latter as agent performance.
+    verdict_source = Column(String(20), nullable=True)
     
     # Relationship to Invoice
     invoice = relationship("Invoice", back_populates="audit_logs")

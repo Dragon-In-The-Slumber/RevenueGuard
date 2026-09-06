@@ -648,8 +648,13 @@ async def draft_email(state: RecoveryState) -> RecoveryState:
     return state
 
 async def evaluate_compliance(state: RecoveryState) -> RecoveryState:
+    state.setdefault("visited_nodes", []).append("evaluate_compliance")
+
     if not state.get("drafted_email") or not state.get("should_send_email"):
-        state["compliance_verdict"] = "PASS"
+        # Nothing was drafted, so nothing was reviewed. This used to record PASS,
+        # which inflated the compliance rate with checks that never happened.
+        # No audit row is written either — there is no draft to attach one to.
+        state["compliance_verdict"] = None
         return state
         
     evaluation = await evaluate_email_compliance(
@@ -661,8 +666,22 @@ async def evaluate_compliance(state: RecoveryState) -> RecoveryState:
     
     state["compliance_verdict"] = evaluation.get("verdict", "FAIL")
     state["compliance_reason"] = evaluation.get("reason", "")
+    verdict_source = evaluation.get("source", "unknown")
     
-    if state["compliance_verdict"] != "PASS":
+    if state["compliance_verdict"] == "UNREVIEWED":
+        # Distinct from both PASS and FAIL: the draft goes out, but no judge saw
+        # it. Not counted as a check, and not retried — there is no feedback to
+        # rewrite against.
+        state["audit_entries"].append({
+            "event_type": "COMPLIANCE_UNREVIEWED",
+            "reasoning": state["compliance_reason"] or "Compliance judge was unavailable.",
+            "action": "Sent without compliance review",
+            "rule": "Compliance Judge unavailable",
+            "content": state["drafted_email"],
+            "compliance_verdict": "UNREVIEWED",
+            "verdict_source": verdict_source,
+        })
+    elif state["compliance_verdict"] != "PASS":
         state["compliance_retries"] = state.get("compliance_retries", 0) + 1
         state["audit_entries"].append({
             "event_type": "COMPLIANCE_FAILED",
@@ -670,7 +689,8 @@ async def evaluate_compliance(state: RecoveryState) -> RecoveryState:
             "action": "Rejected email draft",
             "rule": "Compliance Judge",
             "content": state["drafted_email"],
-            "compliance_verdict": state["compliance_verdict"]
+            "compliance_verdict": state["compliance_verdict"],
+            "verdict_source": verdict_source,
         })
     else:
         state["audit_entries"].append({
@@ -679,9 +699,10 @@ async def evaluate_compliance(state: RecoveryState) -> RecoveryState:
             "action": "Approved email draft",
             "rule": "Compliance Judge",
             "content": state["drafted_email"],
-            "compliance_verdict": state["compliance_verdict"]
+            "compliance_verdict": state["compliance_verdict"],
+            "verdict_source": verdict_source,
         })
-    
+
     return state
 
 

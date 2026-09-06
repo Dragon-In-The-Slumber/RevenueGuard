@@ -23,3 +23,33 @@ export const EVENT_TYPE_CONFIG: Record<string, { color: string; icon: string }> 
   HUMAN_ESCALATED:     { color: "text-pink-400",    icon: "👤" },
   PAYMENT_RECEIVED:    { color: "text-emerald-400", icon: "💰" },
 };
+
+/**
+ * Compliance verdicts. UNREVIEWED is not a failure and not a pass: the draft was
+ * sent, but the judge was unreachable, so no review happened. It is amber because
+ * it needs attention without implying the draft was bad.
+ */
+export const COMPLIANCE_CONFIG: Record<
+  string,
+  { label: string; color: string; bg: string; border: string; hex: string; icon: string }
+> = {
+  PASS: {
+    label: "Passed", color: "text-emerald-400", bg: "bg-emerald-500/10",
+    border: "border-emerald-500/30", hex: "#34d399", icon: "✅",
+  },
+  FAIL: {
+    label: "Rejected", color: "text-red-400", bg: "bg-red-500/10",
+    border: "border-red-500/30", hex: "#f87171", icon: "❌",
+  },
+  UNREVIEWED: {
+    label: "Unreviewed", color: "text-amber-400", bg: "bg-amber-500/10",
+    border: "border-amber-500/30", hex: "#fbbf24", icon: "⚠️",
+  },
+};
+
+/** Where a verdict came from — a model, or DEMO_FAST scaffolding. */
+export const VERDICT_SOURCE_LABEL: Record<string, string> = {
+  llm: "model-reviewed",
+  deterministic: "deterministic scaffolding",
+  unavailable: "judge unavailable",
+};

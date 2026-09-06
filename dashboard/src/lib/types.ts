@@ -34,6 +34,8 @@ export interface AuditLogEntry {
   rule_applied: string | null;
   content_snapshot: string | null;
   compliance_verdict: string | null;
+  /** "llm" | "deterministic" | "unavailable" — whether a model actually reviewed it. */
+  verdict_source?: string | null;
   approved_content?: string | null;
 }
 

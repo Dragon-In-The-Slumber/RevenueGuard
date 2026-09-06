@@ -298,45 +298,70 @@ async def get_clients(hero: bool = False, db: AsyncSession = Depends(get_db)):
 async def get_compliance_stats(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(AuditLog).where(AuditLog.compliance_verdict != None))
     logs = result.scalars().all()
-    
-    total = len(logs)
+
     passed = sum(1 for l in logs if l.compliance_verdict == "PASS")
     failed = sum(1 for l in logs if l.compliance_verdict == "FAIL")
-    rate = (passed / total * 100) if total > 0 else 100.0
-    
+    # A draft that went out without a review is neither a pass nor a fail. Counting
+    # it either way would misstate the rate.
+    unreviewed = sum(1 for l in logs if l.compliance_verdict == "UNREVIEWED")
+    deterministic = sum(1 for l in logs if l.verdict_source == "deterministic")
+
+    # The rate is over genuine verdicts only: PASS + FAIL.
+    total_checked = passed + failed
+    # None, not 100.0. An empty database is not a perfect compliance record, and
+    # the gauge previously showed a green 100% before a single draft existed.
+    rate = (passed / total_checked * 100) if total_checked > 0 else None
+
     return {
-        "total_checked": total,
+        "total_checked": total_checked,
         "passed": passed,
         "failed": failed,
-        "rate": rate
+        "unreviewed": unreviewed,
+        # How many of the verdicts came from DEMO_FAST scaffolding rather than a
+        # model, so the UI can avoid presenting scaffolding as agent performance.
+        "deterministic": deterministic,
+        "rate": rate,
     }
 
 @router.get("/api/compliance/rejected")
 async def get_compliance_rejected(db: AsyncSession = Depends(get_db)):
-    # Get all logs for context
-    all_logs_result = await db.execute(
-        select(AuditLog).order_by(AuditLog.timestamp.asc(), AuditLog.id.asc())
-    )
-    all_logs = all_logs_result.scalars().all()
-
+    # UNREVIEWED belongs here too: a draft that went out unchecked is exactly the
+    # thing a compliance reviewer needs to see, and it was previously invisible.
     result = await db.execute(
         select(AuditLog, Invoice.client_name)
         .join(Invoice, AuditLog.invoice_id == Invoice.id)
-        .where(AuditLog.compliance_verdict == "FAIL")
+        .where(AuditLog.compliance_verdict.in_(["FAIL", "UNREVIEWED"]))
         .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
     )
+    rows = result.all()
+
+    # Resolving the approved rewrite needs the surrounding trail, but only for the
+    # invoices actually listed. This previously loaded every audit row in the
+    # database into memory on every request.
+    invoice_ids = {audit.invoice_id for audit, _ in rows}
+    all_logs = []
+    if invoice_ids:
+        all_logs = (await db.execute(
+            select(AuditLog)
+            .where(AuditLog.invoice_id.in_(invoice_ids))
+            .where(AuditLog.event_type.in_(["EMAIL_SENT", "COMPLIANCE_PASSED"]))
+            .order_by(AuditLog.timestamp.asc(), AuditLog.id.asc())
+        )).scalars().all()
 
     rejected = []
-    for audit, client_name in result:
+    for audit, client_name in rows:
         # Find the next EMAIL_SENT or COMPLIANCE_PASSED log for this invoice.
         # Compare (timestamp, id): a rejection and its approved rewrite happen in
         # the same tick, so timestamp alone never orders them.
+        # An UNREVIEWED row has no rewrite — nothing was rejected, so nothing was
+        # redrafted. Only a FAIL can have an approved successor.
         approved_content = None
-        for log in all_logs:
-            if log.invoice_id == audit.invoice_id and (log.timestamp, log.id) > (audit.timestamp, audit.id):
-                if log.event_type in ["EMAIL_SENT", "COMPLIANCE_PASSED"] and log.content_snapshot:
-                    approved_content = log.content_snapshot
-                    break
+        if audit.compliance_verdict == "FAIL":
+            for log in all_logs:
+                if log.invoice_id == audit.invoice_id and (log.timestamp, log.id) > (audit.timestamp, audit.id):
+                    if log.content_snapshot:
+                        approved_content = log.content_snapshot
+                        break
 
         rejected.append({
             "id": audit.id,
@@ -349,9 +374,10 @@ async def get_compliance_rejected(db: AsyncSession = Depends(get_db)):
             "rule_applied": audit.rule_applied,
             "content_snapshot": audit.content_snapshot,
             "compliance_verdict": audit.compliance_verdict,
-            "approved_content": approved_content
+            "verdict_source": audit.verdict_source,
+            "approved_content": approved_content,
         })
-        
+
     return {"rejected": rejected}
 
 

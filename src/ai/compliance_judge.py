@@ -46,15 +46,20 @@ async def evaluate_email_compliance(email_body: str, escalation_stage: str, cont
         # autoincrement that climbs on every reset. Hashing the raw body made the
         # verdict depend on the primary key, so the same seed produced different
         # compliance outcomes on a second run.
+        # NOTE: this is scaffolding, not a compliance check. Rows produced here are
+        # tagged source="deterministic" and labelled in the UI, for the same reason
+        # CLAUDE.md forbids presenting simulate_client output as agent performance.
         normalised = re.sub(r"\d+", "#", f"{email_body}|{escalation_stage}")
         digest = hashlib.sha256(normalised.encode("utf-8")).hexdigest()
         if int(digest[:8], 16) % 100 < 20:
             logger.warning("LLM unavailable (%s); deterministic mock compliance FAIL", unavailable)
             return {"verdict": "FAIL",
                     "reason": f"Mock failure: tone flagged as too aggressive ({unavailable})",
-                    "suggestions": "Soften the language"}
+                    "suggestions": "Soften the language",
+                    "source": "deterministic"}
         logger.warning("LLM unavailable (%s); deterministic mock compliance PASS", unavailable)
-        return {"verdict": "PASS", "reason": f"Mock pass ({unavailable})", "suggestions": ""}
+        return {"verdict": "PASS", "reason": f"Mock pass ({unavailable})", "suggestions": "",
+                "source": "deterministic"}
 
 
     try:
@@ -85,12 +90,19 @@ async def evaluate_email_compliance(email_body: str, escalation_stage: str, cont
                 content = content.split("```")[1].strip()
                 
             result = json.loads(content)
+            result["source"] = "llm"
             return result
         except json.JSONDecodeError:
             logger.error(f"Failed to parse JSON from judge: {content}")
-            return {"verdict": "FAIL", "reason": "Failed to parse compliance response", "suggestions": ""}
+            return {"verdict": "FAIL", "reason": "Failed to parse compliance response",
+                    "suggestions": "", "source": "llm"}
             
     except Exception as e:
-        logger.error(f"Compliance judge error: {str(e)}")
-        # Default to PASS in case of API error so we don't break the demo
-        return {"verdict": "PASS", "reason": f"Error calling judge: {str(e)}", "suggestions": ""}
+        # Never launder an outage into a PASS. Returning PASS on error meant an
+        # unreachable judge was indistinguishable from an approved draft, so the
+        # compliance gauge read 100% while nothing had actually been reviewed.
+        # UNREVIEWED says exactly what happened: the draft still sends, but it is
+        # not counted as a check and it is surfaced in the UI.
+        logger.error("Compliance judge error: %s", e, exc_info=True)
+        return {"verdict": "UNREVIEWED", "reason": f"Judge unavailable: {e}", "suggestions": "",
+                "source": "unavailable"}

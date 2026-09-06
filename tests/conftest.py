@@ -48,8 +48,10 @@ def no_llm(monkeypatch):
     # only src.ai.llm left decide_action calling the live API, so the suite hit the
     # network and spent 45s timeouts x 4 retries per decision.
     disabled = lambda client_name=None: "test: LLM disabled"
-    monkeypatch.setattr("src.ai.llm._llm_unavailable", disabled)
-    monkeypatch.setattr("src.ai.agent_policy._llm_unavailable", disabled)
+    for target in ("src.ai.llm._llm_unavailable",
+                   "src.ai.agent_policy._llm_unavailable",
+                   "src.ai.compliance_judge._llm_unavailable"):
+        monkeypatch.setattr(target, disabled)
     return True
 
 
@@ -82,10 +84,15 @@ def fake_llm(monkeypatch):
                 content = "fake response"
             return R()
 
-    monkeypatch.setattr("src.ai.llm._llm_unavailable", lambda client_name=None: None)
-    monkeypatch.setattr("src.ai.agent_policy._llm_unavailable", lambda client_name=None: None)
-    monkeypatch.setattr("src.ai.agent_policy.get_llm", lambda **kw: _FakeLLM())
-    monkeypatch.setattr("src.ai.llm.get_llm", lambda **kw: _FakeLLM())
+    available = lambda client_name=None: None
+    for target in ("src.ai.llm._llm_unavailable",
+                   "src.ai.agent_policy._llm_unavailable",
+                   "src.ai.compliance_judge._llm_unavailable"):
+        monkeypatch.setattr(target, available)
+    for target in ("src.ai.llm.get_llm",
+                   "src.ai.agent_policy.get_llm",
+                   "src.ai.compliance_judge.get_llm"):
+        monkeypatch.setattr(target, lambda **kw: _FakeLLM())
     return scripted
 
 
@@ -154,5 +161,10 @@ def no_network(monkeypatch):
             "fake_llm fixture."
         )
 
-    monkeypatch.setattr("src.ai.llm.get_llm", _forbidden)
-    monkeypatch.setattr("src.ai.agent_policy.get_llm", _forbidden)
+    # Every module that imported get_llm by name holds its own binding. Patching
+    # only src.ai.llm leaves the others calling the live API — which is how the
+    # suite silently went back to hitting the network after an import was hoisted.
+    for target in ("src.ai.llm.get_llm",
+                   "src.ai.agent_policy.get_llm",
+                   "src.ai.compliance_judge.get_llm"):
+        monkeypatch.setattr(target, _forbidden)

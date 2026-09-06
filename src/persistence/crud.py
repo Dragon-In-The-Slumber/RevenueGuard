@@ -114,7 +114,8 @@ async def get_invoices_by_client_name(db: AsyncSession, client_name: str):
 
 def build_audit_log(invoice_id: int, event_type: str, reasoning: str, action: str,
                     timestamp: datetime = None, rule_applied: str = None,
-                    content_snapshot: str = None, compliance_verdict: str = None) -> AuditLog:
+                    content_snapshot: str = None, compliance_verdict: str = None,
+                    verdict_source: str = None) -> AuditLog:
     """Construct an AuditLog without touching the session — for batched writes."""
     return AuditLog(
         invoice_id=invoice_id,
@@ -124,11 +125,12 @@ def build_audit_log(invoice_id: int, event_type: str, reasoning: str, action: st
         action_taken=action,
         content_snapshot=content_snapshot,
         compliance_verdict=compliance_verdict,
+        verdict_source=verdict_source,
         timestamp=timestamp or datetime.utcnow()
     )
 
 
-async def log_audit_event(db: AsyncSession, invoice_id: int, event_type: str, reasoning: str, action: str, timestamp: datetime = None, rule_applied: str = None, content_snapshot: str = None, compliance_verdict: str = None):
+async def log_audit_event(db: AsyncSession, invoice_id: int, event_type: str, reasoning: str, action: str, timestamp: datetime = None, rule_applied: str = None, content_snapshot: str = None, compliance_verdict: str = None, verdict_source: str = None):
     """
     Single audit write, committed immediately.
 
@@ -138,7 +140,7 @@ async def log_audit_event(db: AsyncSession, invoice_id: int, event_type: str, re
     the database in a partial state if a tick failed halfway.
     """
     log = build_audit_log(invoice_id, event_type, reasoning, action, timestamp,
-                          rule_applied, content_snapshot, compliance_verdict)
+                          rule_applied, content_snapshot, compliance_verdict, verdict_source)
     db.add(log)
     await db.commit()
     await db.refresh(log)

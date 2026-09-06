@@ -76,8 +76,16 @@ def route_after_validation(state: RecoveryState) -> str:
     return ACTION_DISPATCH.get(action, "draft_email")
 
 
+# Verdicts that let a draft proceed. UNREVIEWED is here deliberately: when the
+# judge is unreachable the draft still sends, but it must NOT enter the rewrite
+# loop — there is no feedback to rewrite against, so looping would burn both
+# retries and hand the case to a human for an outage that is not the draft's
+# fault. It is recorded as unreviewed rather than approved.
+PROCEED_VERDICTS = {"PASS", "UNREVIEWED"}
+
+
 def route_after_compliance(state: RecoveryState) -> str:
-    if state.get("compliance_verdict") == "PASS":
+    if state.get("compliance_verdict") in PROCEED_VERDICTS:
         return "call_razorpay_tools"
     if state.get("compliance_retries", 0) >= 2:
         return "execute_action"    # Give up after 2 rewrites, log failure
